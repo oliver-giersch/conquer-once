@@ -6,7 +6,7 @@ use core::sync::atomic::{
 
 use crate::POISON_PANIC_MSG;
 
-use self::State::{Ready, Uninit, WouldBlock};
+use self::OnceState::{Ready, Uninit, WouldBlock};
 
 const WOULD_BLOCK: usize = 0;
 const UNINIT: usize = 1;
@@ -18,26 +18,26 @@ const POISONED: usize = 3;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub struct AtomicState(AtomicUsize);
+pub struct AtomicOnceState(AtomicUsize);
 
-impl AtomicState {
+/********** impl inherent *************************************************************************/
+
+impl AtomicOnceState {
     #[inline]
     pub const fn new() -> Self {
         Self(AtomicUsize::new(UNINIT))
     }
 
     #[inline]
-    pub fn load(&self) -> Result<State, PoisonError> {
+    pub fn load(&self) -> Result<OnceState, PoisonError> {
         self.0.load(Acquire).try_into()
     }
 
     #[inline]
-    pub fn try_swap_waiters(&self, current: Waiter, new: Waiter) -> Result<(), State> {
-        let prev = self.0.compare_and_swap(current.0, new.0, Acquire);
-        if prev == current.0 {
-            Ok(())
-        } else {
-            Err(prev.try_into().expect(POISON_PANIC_MSG))
+    pub fn try_swap_waiters(&self, current: Waiter, new: Waiter) -> Result<(), OnceState> {
+        match self.0.compare_and_swap(current.0, new.0, Acquire) {
+            prev if prev == current.0 => Ok(()),
+            prev => Err(prev.try_into().expect(POISON_PANIC_MSG)),
         }
     }
 
@@ -67,13 +67,15 @@ impl AtomicState {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum State {
+pub enum OnceState {
     Uninit,
     Ready,
     WouldBlock(Waiter),
 }
 
-impl TryFrom<usize> for State {
+/********** impl TryFrom **************************************************************************/
+
+impl TryFrom<usize> for OnceState {
     type Error = PoisonError;
 
     #[inline]

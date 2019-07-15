@@ -1,3 +1,5 @@
+//! Generic definition and implementation of the [`Lazy`] type.
+
 use core::ops::Deref;
 
 use crate::cell::OnceCell;
@@ -32,13 +34,13 @@ where
     B: Block,
     F: Fn() -> T,
 {
-    /// TODO: Docs...
+    /// Returns `true` if the [`Lazy`] has been successfully initialized.
     #[inline]
     pub fn is_initialized(lazy: &Self) -> bool {
         lazy.cell.is_initialized()
     }
 
-    /// TODO: Docs...
+    /// Returns `true` if the [`Lazy`] has been poisoned.
     #[inline]
     pub fn is_poisoned(lazy: &Self) -> bool {
         lazy.cell.is_poisoned()

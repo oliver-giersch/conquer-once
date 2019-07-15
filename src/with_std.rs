@@ -4,7 +4,11 @@ use std::sync::atomic::{
 };
 use std::thread::{self, Thread};
 
-use crate::state::{AtomicState, State::WouldBlock, Waiter};
+use crate::state::{
+    AtomicOnceState,
+    OnceState::{Ready, WouldBlock},
+    Waiter,
+};
 use crate::Internal;
 use crate::{Block, POISON_PANIC_MSG};
 
@@ -23,7 +27,7 @@ impl Internal for ParkThread {}
 
 impl Block for ParkThread {
     #[inline]
-    fn block(state: &AtomicState, head: Waiter) {
+    fn block(state: &AtomicOnceState, head: Waiter) {
         let mut waiter = StackWaiter {
             thread: Some(thread::current()),
             ready: AtomicBool::default(),
@@ -47,7 +51,7 @@ impl Block for ParkThread {
             thread::park();
         }
 
-        let _ = state.load().expect(POISON_PANIC_MSG); // propagates poisoning
+        assert_eq!(state.load().expect(POISON_PANIC_MSG), Ready); // propagates poisoning
     }
 
     #[inline]
@@ -59,7 +63,7 @@ impl Block for ParkThread {
                 queue = curr.next;
 
                 let thread = curr.thread.take().unwrap();
-                // the stack waiter could be dropped right after this store
+                // the stack waiter could be dropped right after this store!
                 curr.ready.store(true, Release);
 
                 thread.unpark();
