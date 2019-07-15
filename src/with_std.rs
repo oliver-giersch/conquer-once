@@ -4,13 +4,15 @@ use std::sync::atomic::{
 };
 use std::thread::{self, Thread};
 
+use crate::cell::Block;
 use crate::state::{
     AtomicOnceState,
     OnceState::{Ready, WouldBlock},
     Waiter,
 };
+
 use crate::Internal;
-use crate::{Block, POISON_PANIC_MSG};
+use crate::POISON_PANIC_MSG;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // ParkThread

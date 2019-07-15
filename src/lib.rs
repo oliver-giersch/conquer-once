@@ -1,5 +1,6 @@
-//! This crate provides a set of synchronized initialization primitives which
-//! are useful for lazy initialization of static variables.
+//! This crate provides a set of synchronized initialization primitives, which
+//! are primarily useful for lazy and one-time initialization of static
+//! variables.
 //!
 //! # Synchronization Primitives
 //!
@@ -19,18 +20,18 @@
 //!
 //! ## OnceCell
 //!
-//! A cell type with interior mutability that can be only synchronized once and
-//! only allows read-only access to the contained data after initialization.
+//! A cell type with interior mutability that can be only written to once and
+//! only allows read access to the contained data after initialization.
 //!
 //! # Credits
 //!
 //! Inspiration for this crate is heavily drawn from [`once_cell`](https://crates.io/crates/once_cell),
 //! but features clear distinctions between blocking and non-blocking operations
-//! and support for `#[no_std]` environments by offering additional primitives
-//! that use spin-locks instead of OS reliant blocking mechanisms out of the
-//! box.
+//! and support for `#[no_std]` environments out of the box, by offering
+//! additional synchronization primitives using spin-locks instead of OS reliant
+//! blocking mechanisms.
 //! Unlike many other crates, support for the `#[no_std]` compatible types is
-//! not mutually exclusive with using the types that rely on the presence of the
+//! not mutually exclusive with using the types relying on the presence of the
 //! standard library.
 //!
 //! The idea for the implementation of the [`Once`]/[`OnceCell`] types is also
@@ -45,6 +46,11 @@
 mod tests;
 
 pub mod spin;
+pub mod raw {
+    //! Generic 'raw' types exposed through various type aliases.
+    pub use crate::cell::OnceCell;
+    pub use crate::lazy::Lazy;
+}
 
 mod cell;
 mod lazy;
@@ -52,17 +58,19 @@ mod state;
 #[cfg(feature = "std")]
 mod with_std;
 
-use crate::internal::Internal;
-use crate::state::{AtomicOnceState, Waiter};
 #[cfg(feature = "std")]
-use crate::with_std::ParkThread;
+pub use crate::with_std::ParkThread;
+
+use crate::internal::Internal;
 
 const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 
 #[cfg(feature = "std")]
-/// A type for lazy initialization of e.g. global static variables.
+/// A type for lazy initialization of e.g. global static variables, which
+/// provides the same functionality as the `lazy_static!` macro.
 ///
-/// This type provides the functionality as the `lazy_static!` macro.
+/// For the API of this type alias, see the API of the generic
+/// [`Lazy`](crate::raw::Lazy) type.
 ///
 /// # Examples
 ///
@@ -82,7 +90,7 @@ const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 /// assert_eq!(lock.as_slice(), &[1, 2, 3]);
 /// ```
 ///
-/// The associated [`new`](Lazy::new) function can be used with any function or
+/// The associated [`new`](crate::raw::Lazy::new) function can be used with any function or
 /// closure that implements `Fn() -> T`.
 ///
 /// ```
@@ -106,7 +114,10 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 
 #[cfg(feature = "std")]
 /// An interior mutability cell type which allows synchronized one-time
-/// initialization and exclusively read-only access after initialization.
+/// initialization and read-only access exclusively after initialization.
+///
+/// For the API of this type alias, see the generic
+/// [`OnceCell`](crate::raw::OnceCell) type.
 ///
 /// # Examples
 ///
@@ -142,6 +153,10 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 /// A synchronization primitive which can be used to run a one-time global
 /// initialization.
 ///
+/// For the API of this type alias, see the generic
+/// [`OnceCell`](crate::raw::OnceCell) type.
+/// This is a specialization with `T = ()`.
+///
 /// # Examples
 ///
 /// ```
@@ -168,18 +183,6 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 /// }
 /// ```
 pub type Once = OnceCell<()>;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Block (trait)
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-/// A sealed trait for abstracting over different blocking strategies.
-pub trait Block: Default + Internal {
-    /// Blocks the current thread, until `state` is no longer blocking.
-    fn block(state: &AtomicOnceState, waiter: Waiter);
-    /// Unblocks all waiting threads.
-    fn unblock(waiter: Waiter);
-}
 
 mod internal {
     pub trait Internal {}

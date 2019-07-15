@@ -20,8 +20,23 @@ The minimum supported Rust version for this crate is 1.36.0.
 
 ## Features
 
-...
+By default, `conquer-once` enables the `std` feature.
+With this feature enabled, the crate exports the `Lazy`, `Once` and `OnceCell`
+types that use an OS and standard library reliant blocking mechanism.
+Without this feature, the crate is `#[no_std]` environment compatible, but only
+exports the types in the crate's `spin` sub-module, which use spin-locks.
+
+The feature can be disabled by specifying the dependency as follows:
+
+``` 
+[dependencies.conquer-once]
+version = "0.1"
+use-default-features = false
+```
 
 ## License
 
-...
+`conquer-once` is distributed under the terms of both the MIT license and the
+Apache License (Version 2.0).
+
+See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.

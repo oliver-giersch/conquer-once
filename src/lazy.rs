@@ -2,14 +2,14 @@
 
 use core::ops::Deref;
 
-use crate::cell::OnceCell;
-use crate::Block;
+use crate::cell::{Block, OnceCell};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Lazy
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// TODO: Docs...
+/// A type for lazy initialization of e.g. global static variables, which
+/// provides the same functionality as the `lazy_static!` macro.
 #[derive(Debug)]
 pub struct Lazy<T, B, F = fn() -> T> {
     cell: OnceCell<T, B>,
@@ -22,10 +22,7 @@ impl<T, B, F> Lazy<T, B, F> {
     /// Creates a new uninitialized [`Lazy`] with the given `init` closure.
     #[inline]
     pub const fn new(init: F) -> Self {
-        Self {
-            cell: OnceCell::new(),
-            init,
-        }
+        Self { cell: OnceCell::new(), init }
     }
 }
 
@@ -46,7 +43,8 @@ where
         lazy.cell.is_poisoned()
     }
 
-    /// TODO: Docs...
+    /// Returns a reference to the already initialized inner value or
+    /// initializes it first.
     #[inline]
     pub fn get_or_init(lazy: &Self) -> &T {
         lazy.cell.get_or_init(|| (lazy.init)())

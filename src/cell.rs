@@ -8,14 +8,27 @@ use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr;
 
-use crate::state::{AtomicOnceState, OnceState, TryBlockError};
-use crate::{Block, POISON_PANIC_MSG};
+use crate::state::{AtomicOnceState, OnceState, TryBlockError, Waiter};
+use crate::{Internal, POISON_PANIC_MSG};
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Block (trait)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// A sealed trait for abstracting over different blocking strategies.
+pub trait Block: Default + Internal {
+    /// Blocks the current thread, until `state` is no longer blocking.
+    fn block(state: &AtomicOnceState, waiter: Waiter);
+    /// Unblocks all waiting threads.
+    fn unblock(waiter: Waiter);
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // OnceCell
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// A cell type with interior mutability and one time initialization only.
+/// An interior mutability cell type which allows synchronized one-time
+/// initialization and read-only access exclusively after initialization.
 pub struct OnceCell<T, B> {
     state: AtomicOnceState,
     inner: UnsafeCell<MaybeUninit<T>>,
@@ -234,9 +247,7 @@ impl<T: Debug, B> Debug for OnceCell<T, B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut debug = f.debug_struct("OnceCell");
         if self.is_initialized() {
-            debug
-                .field("initialized", &true)
-                .field("inner", unsafe { self.get_unchecked() });
+            debug.field("initialized", &true).field("inner", unsafe { self.get_unchecked() });
         } else {
             debug.field("initialized", &false);
         }
@@ -310,11 +321,7 @@ impl<'a, B: Block> TryFrom<&'a AtomicOnceState> for PanicGuard<'a, B> {
     #[inline]
     fn try_from(state: &'a AtomicOnceState) -> Result<Self, Self::Error> {
         state.try_block()?;
-        Ok(Self {
-            has_panicked: true,
-            state,
-            _marker: PhantomData,
-        })
+        Ok(Self { has_panicked: true, state, _marker: PhantomData })
     }
 }
 
@@ -323,11 +330,8 @@ impl<'a, B: Block> TryFrom<&'a AtomicOnceState> for PanicGuard<'a, B> {
 impl<B: Block> Drop for PanicGuard<'_, B> {
     #[inline]
     fn drop(&mut self) {
-        let waiters = if self.has_panicked {
-            self.state.swap_poisoned()
-        } else {
-            self.state.swap_ready()
-        };
+        let waiters =
+            if self.has_panicked { self.state.swap_poisoned() } else { self.state.swap_ready() };
 
         B::unblock(waiters);
     }
