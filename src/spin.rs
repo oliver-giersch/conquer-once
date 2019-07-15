@@ -41,6 +41,7 @@ pub type Once = OnceCell<()>;
 // Spin
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// Blocking strategy using spin-locks.
 #[derive(Copy, Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Spin;
 

@@ -40,6 +40,7 @@
 //! partly unstable API of the version in the standard library.
 
 #![cfg_attr(all(not(test), not(feature = "std")), no_std)]
+#![deny(missing_docs)]
 
 #[cfg(test)]
 #[macro_use]

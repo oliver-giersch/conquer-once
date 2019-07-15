@@ -18,6 +18,8 @@ use crate::POISON_PANIC_MSG;
 // ParkThread
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// Blocking strategy using low-level and OS reliant parking and un-parking
+/// mechanisms.
 #[derive(Copy, Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ParkThread;
 
