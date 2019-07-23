@@ -118,6 +118,10 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn init_once(&self, func: impl FnOnce() -> T) {
+        if self.is_initialized() {
+            return;
+        }
+
         if let Err(TryBlockError::WouldBlock(waiter)) = self.try_init_inner(func) {
             B::block(&self.state, waiter);
         }
@@ -170,6 +174,7 @@ impl<T, B: Block> OnceCell<T, B> {
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
     pub fn try_get(&self) -> Option<&T> {
+        // TODO: Result<&T, TryError>
         match self.state.load().expect(POISON_PANIC_MSG) {
             OnceState::Ready => Some(unsafe { self.get_unchecked() }),
             _ => None,
