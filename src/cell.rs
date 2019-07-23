@@ -71,6 +71,10 @@ impl<T, B> OnceCell<T, B> {
     }
 
     /// Returns true if the [`OnceCell`] has been successfully initialized.
+    ///
+    /// # Notes
+    ///
+    /// This method does not panic if the [`OnceCell`] is poisoned.
     #[inline]
     pub fn is_initialized(&self) -> bool {
         self.state.load() == Ok(OnceState::Ready)
@@ -78,6 +82,10 @@ impl<T, B> OnceCell<T, B> {
 
     /// Returns true if the [`OnceCell`] has been poisoned during
     /// initialization.
+    ///
+    /// # Notes
+    ///
+    /// This method does not panic if the [`OnceCell`] is poisoned.
     #[inline]
     pub fn is_poisoned(&self) -> bool {
         self.state.load().is_err()
@@ -85,6 +93,26 @@ impl<T, B> OnceCell<T, B> {
 
     /// Returns a reference to the inner value without checking whether the
     /// [`OnceCell`] is actually initialized.
+    ///
+    /// # Example
+    ///
+    /// This is a safe way to use this method:
+    ///
+    /// ```
+    /// use conquer_once::OnceCell;
+    ///
+    /// // let cell = ...
+    /// # let cell = OnceCell::new();
+    /// # cell.init_once(|| 0);
+    ///
+    /// let res = if cell.is_initialized() {
+    ///     Some(unsafe { cell.get_unchecked() })
+    /// } else {
+    ///     None
+    /// };
+    ///
+    /// # assert_eq!(res, Some(&0));
+    /// ```
     ///
     /// # Safety
     ///
@@ -158,26 +186,32 @@ impl<T, B: Block> OnceCell<T, B> {
     #[inline]
     pub fn get(&self) -> Option<&T> {
         match self.state.load().expect(POISON_PANIC_MSG) {
+            OnceState::Ready => Some(unsafe { self.get_unchecked() }),
             OnceState::WouldBlock(waiter) => {
                 B::block(&self.state, waiter);
                 Some(unsafe { self.get_unchecked() })
             }
-            OnceState::Ready => Some(unsafe { self.get_unchecked() }),
-            _ => None,
+            OnceState::Uninit => None,
         }
     }
 
     /// Returns a reference to the inner value if the [`OnceCell`] has been
     /// successfully initialized.
     ///
+    /// # Errors
+    ///
+    /// This method fails if the [`OnceCell`] is either not initialized or
+    /// is currently being initialized by some other thread.
+    ///
     /// # Panics
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
-    pub fn try_get(&self) -> Option<&T> {
-        // TODO: Result<&T, TryError>
+    #[inline]
+    pub fn try_get(&self) -> Result<&T, TryGetError> {
         match self.state.load().expect(POISON_PANIC_MSG) {
-            OnceState::Ready => Some(unsafe { self.get_unchecked() }),
-            _ => None,
+            OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
+            OnceState::Uninit => Err(TryGetError::Uninit),
+            OnceState::WouldBlock(_) => Err(TryGetError::WouldBlock),
         }
     }
 
@@ -224,7 +258,7 @@ impl<T, B: Block> OnceCell<T, B> {
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
-    pub fn get_or_try_init(&self, func: impl FnOnce() -> T) -> Result<&T, TryInitError> {
+    pub fn try_get_or_init(&self, func: impl FnOnce() -> T) -> Result<&T, TryInitError> {
         if self.is_initialized() {
             return Ok(unsafe { self.get_unchecked() });
         }
@@ -232,6 +266,19 @@ impl<T, B: Block> OnceCell<T, B> {
         Ok(self.try_init_inner(func)?)
     }
 
+    /// Attempts to lock the [`OnceCell`] and execute the initialization `func`.
+    ///
+    /// If `func` panics, the [`OnceCell`] will be poisoned.
+    ///
+    /// # Errors
+    ///
+    /// This method returns an [`Err`] if the [`OnceCell`] is either already
+    /// initialized or if the calling thread would have to block.
+    ///
+    /// # Notes
+    ///
+    /// This method is annotated with `#[cold]` in order to keep it out of the
+    /// fast path.
     #[cold]
     fn try_init_inner(&self, func: impl FnOnce() -> T) -> Result<&T, TryBlockError> {
         let guard = PanicGuard::<B>::try_from(&self.state)?;
@@ -298,11 +345,26 @@ impl From<TryBlockError> for TryInitError {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+// TryGetError
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Possible error variants of non-blocking fallible get calls.
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum TryGetError {
+    /// The [`OnceCell`] is currently not initialized.
+    Uninit,
+    /// The [`OnceCell`] is currently being initialized by another thread and
+    /// the current thread would have to block.
+    WouldBlock,
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // PanicGuard
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// A guard for catching panics during the execution of the initialization
 /// closure.
+#[derive(Debug)]
 struct PanicGuard<'a, B: Block> {
     has_panicked: bool,
     state: &'a AtomicOnceState,
