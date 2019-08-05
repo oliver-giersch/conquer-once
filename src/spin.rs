@@ -53,7 +53,7 @@ impl Internal for Spin {}
 
 impl Block for Spin {
     #[inline]
-    fn block(state: &AtomicOnceState, _: Waiter) {
+    fn block(state: &AtomicOnceState) {
         while let WouldBlock(_) = state.load().expect(POISON_PANIC_MSG) {
             spin_loop_hint()
         }

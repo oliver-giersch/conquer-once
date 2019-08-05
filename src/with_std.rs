@@ -1,8 +1,10 @@
 use std::sync::atomic::{
-    spin_loop_hint, AtomicBool,
+    AtomicBool,
     Ordering::{Acquire, Release},
 };
 use std::thread::{self, Thread};
+
+use conquer_util::BackOff;
 
 use crate::cell::Block;
 use crate::state::{
@@ -31,7 +33,20 @@ impl Internal for ParkThread {}
 
 impl Block for ParkThread {
     #[inline]
-    fn block(state: &AtomicOnceState, head: Waiter) {
+    fn block(state: &AtomicOnceState) {
+        let mut backoff = BackOff::new();
+        let head = loop {
+            backoff.spin();
+
+            let state = state.load().expect(POISON_PANIC_MSG);
+            match state {
+                Ready => return,
+                WouldBlock(waiter) if backoff.advise_yield() => break waiter,
+                _ => {}
+            }
+        };
+        backoff.reset();
+
         let mut waiter = StackWaiter {
             thread: Some(thread::current()),
             ready: AtomicBool::default(),
@@ -45,13 +60,13 @@ impl Block for ParkThread {
             if let WouldBlock(ptr) = error {
                 curr = ptr;
                 waiter.next = ptr.into();
+                backoff.spin();
             } else {
                 return;
             }
         }
 
         while !waiter.ready.load(Acquire) {
-            spin_loop_hint();
             thread::park();
         }
 

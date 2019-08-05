@@ -59,6 +59,10 @@ mod state;
 #[cfg(feature = "std")]
 mod with_std;
 
+mod internal {
+    pub trait Internal {}
+}
+
 #[cfg(feature = "std")]
 pub use crate::with_std::ParkThread;
 
@@ -184,7 +188,3 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 /// }
 /// ```
 pub type Once = OnceCell<()>;
-
-mod internal {
-    pub trait Internal {}
-}

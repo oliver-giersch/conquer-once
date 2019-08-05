@@ -9,8 +9,13 @@ repository = "https://github.com/oliver-giersch/conquer-once.git"
 documentation = "https://docs.rs/conquer-once"
 keywords = ["lazy", "once", "synchronization", "initialization"]
 edition = "2018"
-exclude = [".travis.yml"]
+exclude = [".travis.yml", "TODO.md"]
 
 [features]
 default = ["std"]
 std = []
+
+[dependencies.conquer-util]
+git = "https://github.com/oliver-giersch/conquer-util.git"
+no-default-features = true
+features = ["backoff"]

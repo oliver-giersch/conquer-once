@@ -18,7 +18,7 @@ use crate::{Internal, POISON_PANIC_MSG};
 /// A sealed trait for abstracting over different blocking strategies.
 pub trait Block: Default + Internal {
     /// Blocks the current thread, until `state` is no longer blocking.
-    fn block(state: &AtomicOnceState, waiter: Waiter);
+    fn block(state: &AtomicOnceState);
     /// Unblocks all waiting threads.
     fn unblock(waiter: Waiter);
 }
@@ -59,6 +59,19 @@ impl<T, B> OnceCell<T, B> {
     /// # Panics
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use conquer_once::spin::OnceCell;
+    ///
+    /// let uninit: OnceCell<i32> = OnceCell::new();
+    /// assert!(uninit.into_inner().is_none());
+    ///
+    /// let once = OnceCell::new();
+    /// once.init_once(|| "initialized");
+    /// assert_eq!(once.into_inner(), Some("initialized"));
+    /// ```
     #[inline]
     pub fn into_inner(self) -> Option<T> {
         let res = match self.state.load().expect(POISON_PANIC_MSG) {
@@ -94,7 +107,12 @@ impl<T, B> OnceCell<T, B> {
     /// Returns a reference to the inner value without checking whether the
     /// [`OnceCell`] is actually initialized.
     ///
-    /// # Example
+    /// # Safety
+    ///
+    /// The caller has to ensure that the cell has been successfully
+    /// initialized.
+    ///
+    /// # Examples
     ///
     /// This is a safe way to use this method:
     ///
@@ -113,11 +131,6 @@ impl<T, B> OnceCell<T, B> {
     ///
     /// # assert_eq!(res, Some(&0));
     /// ```
-    ///
-    /// # Safety
-    ///
-    /// The caller has to ensure that the cell has been successfully
-    /// initialized.
     #[inline]
     pub unsafe fn get_unchecked(&self) -> &T {
         let inner = &*self.inner.get();
@@ -150,8 +163,8 @@ impl<T, B: Block> OnceCell<T, B> {
             return;
         }
 
-        if let Err(TryBlockError::WouldBlock(waiter)) = self.try_init_inner(func) {
-            B::block(&self.state, waiter);
+        if let Err(TryBlockError::WouldBlock(_)) = self.try_init_inner(func) {
+            B::block(&self.state);
         }
     }
 
@@ -187,8 +200,8 @@ impl<T, B: Block> OnceCell<T, B> {
     pub fn get(&self) -> Option<&T> {
         match self.state.load().expect(POISON_PANIC_MSG) {
             OnceState::Ready => Some(unsafe { self.get_unchecked() }),
-            OnceState::WouldBlock(waiter) => {
-                B::block(&self.state, waiter);
+            OnceState::WouldBlock(_) => {
+                B::block(&self.state);
                 Some(unsafe { self.get_unchecked() })
             }
             OnceState::Uninit => None,
@@ -234,8 +247,8 @@ impl<T, B: Block> OnceCell<T, B> {
         match self.try_init_inner(func) {
             Ok(inner) => inner,
             Err(TryBlockError::AlreadyInit) => unsafe { self.get_unchecked() },
-            Err(TryBlockError::WouldBlock(waiter)) => {
-                B::block(&self.state, waiter);
+            Err(TryBlockError::WouldBlock(_)) => {
+                B::block(&self.state);
                 unsafe { self.get_unchecked() }
             }
         }
