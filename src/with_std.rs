@@ -34,7 +34,7 @@ impl Internal for ParkThread {}
 impl Block for ParkThread {
     #[inline]
     fn block(state: &AtomicOnceState) {
-        let mut backoff = BackOff::new();
+        let backoff = BackOff::new();
         let head = loop {
             backoff.spin();
 

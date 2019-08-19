@@ -114,7 +114,7 @@ impl<T, B> OnceCell<T, B> {
     ///
     /// # Examples
     ///
-    /// This is a safe way to use this method:
+    /// This is one safe way to use this method:
     ///
     /// ```
     /// use conquer_once::OnceCell;
@@ -151,12 +151,33 @@ impl<T, B> OnceCell<T, B> {
 }
 
 impl<T, B: Block> OnceCell<T, B> {
-    /// Initializes the [`OnceCell`] with `func` or blocks until it is fully
+    /// Initializes the [`OnceCell`] with `func` or **blocks** until it is fully
     /// initialized by another thread.
     ///
     /// # Panics
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use conquer_once::OnceCell;
+    ///
+    /// let cell = OnceCell::new();
+    /// cell.init_once(|| {
+    ///     // expensive calculation
+    ///     (0..1_000).map(|i| i * i).sum::<usize>()
+    /// });
+    ///
+    /// cell.init_once(|| {
+    ///     // any further or concurrent calls to `init_once` will do
+    ///     // nothing and return immediately with almost no overhead.
+    ///     # 0
+    /// });
+    ///
+    /// # let exp = (0..1_000).map(|i| i * i).sum::<usize>();
+    /// # assert_eq!(cell.get().copied(), Some(exp));
+    /// ```
     #[inline]
     pub fn init_once(&self, func: impl FnOnce() -> T) {
         if self.is_initialized() {
@@ -171,6 +192,8 @@ impl<T, B: Block> OnceCell<T, B> {
     /// Attempts to initialize the [`OnceCell`] with `func` and returns
     /// [`Ok(())`](Ok) if the initialization closure is successfully executed.
     ///
+    /// This method never blocks.
+    ///
     /// # Errors
     ///
     /// This method fails if the [`OnceCell`] is either already initialized or
@@ -179,6 +202,28 @@ impl<T, B: Block> OnceCell<T, B> {
     /// # Panics
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use conquer_once::{OnceCell, TryInitError};
+    ///
+    /// let cell = OnceCell::new();
+    ///
+    /// // .. in thread 1
+    /// let res = cell.try_init_once(|| {
+    ///     1
+    /// });
+    /// assert!(res.is_ok());
+    ///
+    /// // .. in thread 2
+    /// let res = cell.try_init_once(|| {
+    ///     2
+    /// });
+    /// assert_eq!(res, Err(TryInitError::AlreadyInit));
+    ///
+    /// # assert_eq!(cell.get().copied(), Some(1));
+    /// ```
     #[inline]
     pub fn try_init_once(&self, func: impl FnOnce() -> T) -> Result<(), TryInitError> {
         if self.is_initialized() {
@@ -190,12 +235,25 @@ impl<T, B: Block> OnceCell<T, B> {
     }
 
     /// Returns a reference to the inner value if the [`OnceCell`] has been
-    /// successfully initialized or blocks until an already begun initialization
-    /// is complete.
+    /// successfully initialized or **blocks** until an already begun
+    /// initialization is complete.
     ///
     /// # Panics
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use conquer_once::OnceCell;
+    ///
+    /// let cell = OnceCell::new();
+    /// assert_eq!(cell.get(), None);
+    /// cell.init_once(|| {
+    ///     1
+    /// });
+    /// assert_eq!(cell.get(), Some(&1));
+    /// ```
     #[inline]
     pub fn get(&self) -> Option<&T> {
         match self.state.load().expect(POISON_PANIC_MSG) {
@@ -210,6 +268,8 @@ impl<T, B: Block> OnceCell<T, B> {
 
     /// Returns a reference to the inner value if the [`OnceCell`] has been
     /// successfully initialized.
+    ///
+    /// This method never blocks.
     ///
     /// # Errors
     ///
@@ -258,9 +318,9 @@ impl<T, B: Block> OnceCell<T, B> {
     /// successfully initialized and otherwise attempts to call `func` in order
     /// to initialize the [`OnceCell`].
     ///
-    /// Instead of blocking, this method returns a [`WouldBlock`](TryInitError::WouldBlock) error,
-    /// if another thread is concurrently attempting to initialize the same
-    /// [`OnceCell`].
+    /// Instead of blocking, this method returns a [`WouldBlock`](TryInitError::WouldBlock)
+    /// error, if another thread is concurrently attempting to initialize the
+    /// same [`OnceCell`].
     ///
     /// # Errors
     ///
@@ -282,6 +342,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// Attempts to lock the [`OnceCell`] and execute the initialization `func`.
     ///
     /// If `func` panics, the [`OnceCell`] will be poisoned.
+    /// This method never blocks.
     ///
     /// # Errors
     ///

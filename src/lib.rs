@@ -63,6 +63,7 @@ mod internal {
     pub trait Internal {}
 }
 
+pub use crate::cell::{TryGetError, TryInitError};
 #[cfg(feature = "std")]
 pub use crate::with_std::ParkThread;
 

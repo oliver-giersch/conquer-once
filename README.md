@@ -5,6 +5,16 @@ blocking mechanisms with clear distinction between blocking and non-blocking
 methods and additional support for `#[no_std]` environments when using
 spin-locks.
 
+[![Build Status](https://travis-ci.com/oliver-giersch/conquer-once.svg?branch=master)](
+https://travis-ci.com/oliver-giersch/conquer-once)
+[![Latest version](https://img.shields.io/crates/v/conquer-once.svg)](
+https://crates.io/crates/conquer-once)
+[![Documentation](https://docs.rs/conquer-once/badge.svg)](https://docs.rs/conquer-once)
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](
+https://github.com/oliver-giersch/conquer-once)
+[![Rust 1.36+](https://img.shields.io/badge/rust-1.36+-lightgray.svg)](
+https://www.rust-lang.org)
+
 ## Usage
 
 To use this crate, add the following to your `Cargo.toml`
@@ -18,7 +28,7 @@ conquer-once = "0.1"
 
 The minimum supported Rust version for this crate is 1.36.0.
 
-## Features
+## Cargo Features
 
 By default, `conquer-once` enables the `std` feature.
 With this feature enabled, the crate exports the `Lazy`, `Once` and `OnceCell`

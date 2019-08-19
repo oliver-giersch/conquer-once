@@ -16,6 +16,6 @@ default = ["std"]
 std = []
 
 [dependencies.conquer-util]
-git = "https://github.com/oliver-giersch/conquer-util.git"
+version = "0.1.0"
 no-default-features = true
-features = ["backoff"]
+features = ["back-off"]
