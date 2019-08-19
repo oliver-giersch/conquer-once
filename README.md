@@ -5,8 +5,8 @@ blocking mechanisms with clear distinction between blocking and non-blocking
 methods and additional support for `#[no_std]` environments when using
 spin-locks.
 
-[![Build Status](https://travis-ci.com/oliver-giersch/conquer-once.svg?branch=master)](
-https://travis-ci.com/oliver-giersch/conquer-once)
+[![Build Status](https://travis-ci.org/oliver-giersch/conquer-once.svg?branch=master)](
+https://travis-ci.org/oliver-giersch/conquer-once)
 [![Latest version](https://img.shields.io/crates/v/conquer-once.svg)](
 https://crates.io/crates/conquer-once)
 [![Documentation](https://docs.rs/conquer-once/badge.svg)](https://docs.rs/conquer-once)
