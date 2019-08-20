@@ -29,6 +29,11 @@ impl AtomicOnceState {
     }
 
     #[inline]
+    pub const fn ready() -> Self {
+        Self(AtomicUsize::new(READY))
+    }
+
+    #[inline]
     pub fn load(&self) -> Result<OnceState, PoisonError> {
         self.0.load(Acquire).try_into()
     }
