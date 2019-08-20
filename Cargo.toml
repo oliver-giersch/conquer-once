@@ -8,7 +8,7 @@ readme = "README.md"
 repository = "https://github.com/oliver-giersch/conquer-once.git"
 documentation = "https://docs.rs/conquer-once"
 keywords = ["lazy", "once", "synchronization", "initialization"]
-categories = ["concurrency", "no-std"]
+categories = ["concurrency", "no-std", "memory-management"]
 edition = "2018"
 exclude = [".travis.yml"]
 
