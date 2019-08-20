@@ -17,6 +17,7 @@ use crate::POISON_PANIC_MSG;
 /// For the API of this type alias, see the API of the generic
 /// [`Lazy`](crate::raw::Lazy) type.
 pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, Spin, F>;
+
 /// An interior mutability cell type which allows synchronized one-time
 /// initialization and read-only access exclusively after initialization.
 ///
@@ -26,6 +27,7 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, Spin, F>;
 /// For the API of this type alias, see the generic
 /// [`OnceCell`](crate::raw::OnceCell) type.
 pub type OnceCell<T> = crate::cell::OnceCell<T, Spin>;
+
 /// A synchronization primitive which can be used to run a one-time global
 /// initialization.
 ///

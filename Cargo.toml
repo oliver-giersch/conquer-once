@@ -9,7 +9,7 @@ repository = "https://github.com/oliver-giersch/conquer-once.git"
 documentation = "https://docs.rs/conquer-once"
 keywords = ["lazy", "once", "synchronization", "initialization"]
 edition = "2018"
-exclude = [".travis.yml", "TODO.md"]
+exclude = [".travis.yml"]
 
 [features]
 default = ["std"]
