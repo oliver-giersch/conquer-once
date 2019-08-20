@@ -64,10 +64,10 @@ mod internal {
 }
 
 pub use crate::cell::{TryGetError, TryInitError};
-#[cfg(feature = "std")]
-pub use crate::with_std::ParkThread;
 
 use crate::internal::Internal;
+#[cfg(feature = "std")]
+use crate::with_std::ParkThread;
 
 const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 

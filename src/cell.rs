@@ -3,7 +3,7 @@
 
 use core::cell::UnsafeCell;
 use core::convert::TryFrom;
-use core::fmt::{self, Debug};
+use core::fmt;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr;
@@ -63,8 +63,8 @@ impl<T, B> OnceCell<T, B> {
         }
     }
 
-    /// Converts `self` into a [`Some(T)`](Some) if the [`OnceCell`] has
-    /// previously been successfully initialized and [`None`] otherwise.
+    /// Consumes `self` and returns a [`Some(T)`](Some) if the [`OnceCell`] has
+    /// previously been successfully initialized or [`None`] otherwise.
     ///
     /// # Panics
     ///
@@ -248,8 +248,8 @@ impl<T, B: Block> OnceCell<T, B> {
         Ok(())
     }
 
-    /// Returns a reference to the inner value if the [`OnceCell`] has
-    /// previously been successfully initialized.
+    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
+    /// [`None`].
     ///
     /// This method **blocks** if another thread has already begun initializing
     /// the [`OnceCell`] concurrently.
@@ -282,8 +282,8 @@ impl<T, B: Block> OnceCell<T, B> {
         }
     }
 
-    /// Returns a reference to the inner value if the [`OnceCell`] has
-    /// previously been successfully initialized.
+    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
+    /// an [`Err`].
     ///
     /// This method never blocks.
     ///
@@ -306,10 +306,8 @@ impl<T, B: Block> OnceCell<T, B> {
         }
     }
 
-    /// FIXME: wording: reference initialized state
-    /// Returns a reference to the inner value if the [`OnceCell`] has
-    /// previously been successfully initialized or otherwise attempts to
-    /// initialize it itself with `func`.
+    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
+    /// otherwise attempts to initialize it with `func` and return the result.
     ///
     /// This method **blocks** if another thread has already begun
     /// initializing the [`OnceCell`] concurrently.
@@ -333,27 +331,21 @@ impl<T, B: Block> OnceCell<T, B> {
         }
     }
 
-    /// FIXME: semantically broken... (useless)?
-    /// Returns a reference to the inner value if the [`OnceCell`] has been
-    /// successfully initialized and otherwise attempts to call `func` in order
-    /// to initialize the [`OnceCell`].
+    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
+    /// otherwise attempts to initialize it with `func` and return the result.
     ///
     /// This method never blocks.
     ///
     /// # Errors
     ///
-    /// This method fails if the initialization of [`OnceCell`] has
-    /// already been completed previously, in which case an
-    /// [`AlreadyInit`][TryInitError::AlreadyInit] error is returned.
-    /// If another thread is concurrently in the process of initializing
-    /// it and this thread would have to block, a
-    /// [`WouldBlock`][TryInitError::WouldBlock] error is returned.
+    /// This method only fails if the calling thread would have to block in case
+    /// another thread is concurrently initializing the [`OnceCell`].
     ///
     /// # Panics
     ///
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
-    pub fn try_get_or_init(&self, func: impl FnOnce() -> T) -> Result<&T, TryInitError> {
+    pub fn try_get_or_init(&self, func: impl FnOnce() -> T) -> Result<&T, WouldBlockError> {
         if self.is_initialized() {
             return Ok(unsafe { self.get_unchecked() });
         }
@@ -379,7 +371,7 @@ impl<T, B: Block> OnceCell<T, B> {
 
 /********** impl Debug ****************************************************************************/
 
-impl<T: Debug, B> Debug for OnceCell<T, B> {
+impl<T: fmt::Debug, B> fmt::Debug for OnceCell<T, B> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut debug = f.debug_struct("OnceCell");
@@ -408,8 +400,12 @@ impl<T, B> Drop for OnceCell<T, B> {
 // TryInitError
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+const UNINIT_MSG: &str = "the `OnceCell` is uninitialized";
+const ALREADY_INIT_MSG: &str = "the `OnceCell` has already been initialized";
+const WOULD_BLOCK_MSG: &str = "the `OnceCell` is currently being initialized";
+
 /// Possible error variants of non-blocking initialization calls.
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TryInitError {
     /// The [`OnceCell`] is already initialized and the initialization procedure
     /// was not called.
@@ -418,6 +414,20 @@ pub enum TryInitError {
     /// the current thread would have to block.
     WouldBlock,
 }
+
+/*********** impl Display *************************************************************************/
+
+impl fmt::Display for TryInitError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TryInitError::AlreadyInit => write!(f, "{}", ALREADY_INIT_MSG),
+            TryInitError::WouldBlock => write!(f, "{}", WOULD_BLOCK_MSG),
+        }
+    }
+}
+
+/*********** impl From ****************************************************************************/
 
 impl From<TryBlockError> for TryInitError {
     #[inline]
@@ -434,13 +444,54 @@ impl From<TryBlockError> for TryInitError {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// Possible error variants of non-blocking fallible get calls.
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TryGetError {
     /// The [`OnceCell`] is currently not initialized.
     Uninit,
     /// The [`OnceCell`] is currently being initialized by another thread and
     /// the current thread would have to block.
     WouldBlock,
+}
+
+/*********** impl Display *************************************************************************/
+
+impl fmt::Display for TryGetError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TryGetError::Uninit => write!(f, "{}", UNINIT_MSG),
+            TryGetError::WouldBlock => write!(f, "{}", WOULD_BLOCK_MSG),
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// WouldBlockError
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// An error indicating that a [`OnceCell`] would have to block.
+#[derive(Copy, Clone, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+pub struct WouldBlockError(());
+
+/*********** impl Display *************************************************************************/
+
+impl fmt::Display for WouldBlockError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", WOULD_BLOCK_MSG)
+    }
+}
+
+/*********** impl From ****************************************************************************/
+
+impl From<TryBlockError> for WouldBlockError {
+    #[inline]
+    fn from(err: TryBlockError) -> Self {
+        match err {
+            TryBlockError::AlreadyInit => unreachable!(),
+            TryBlockError::WouldBlock(_) => Self(()),
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
