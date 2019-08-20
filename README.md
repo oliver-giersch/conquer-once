@@ -12,7 +12,7 @@ https://crates.io/crates/conquer-once)
 [![Documentation](https://docs.rs/conquer-once/badge.svg)](https://docs.rs/conquer-once)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](
 https://github.com/oliver-giersch/conquer-once)
-[![Rust 1.36+](https://img.shields.io/badge/rust-1.36+-lightgray.svg)](
+[![Rust 1.36+](https://img.shields.io/badge/Rust-1.36.0-orange.svg)](
 https://www.rust-lang.org)
 
 ## Usage
@@ -21,7 +21,7 @@ To use this crate, add the following to your `Cargo.toml`
 
 ```
 [dependencies]
-conquer-once = "0.1"
+conquer-once = "0.1.1"
 ```
 
 ## Minimum Supported Rust Version (MSRV)
@@ -40,7 +40,7 @@ The feature can be disabled by specifying the dependency as follows:
 
 ``` 
 [dependencies.conquer-once]
-version = "0.1"
+version = "0.1.1"
 use-default-features = false
 ```
 
