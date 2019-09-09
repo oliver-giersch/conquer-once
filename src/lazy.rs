@@ -59,6 +59,11 @@ where
     /// initializes it first.
     ///
     /// This has the same effect as using the `deref` operator on a [`Lazy`].
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the `init` procedure specified during construction
+    /// panics or if the [`Lazy`] is poisoned.
     #[inline]
     pub fn get_or_init(lazy: &Self) -> &T {
         lazy.cell.get_or_init(|| (lazy.init)())

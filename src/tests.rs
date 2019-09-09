@@ -151,3 +151,13 @@ macro_rules! generate_tests {
 }
 
 generate_tests!();
+
+#[test]
+fn catch_panic() {
+    static PANIC: Lazy<i32> = Lazy::new(|| panic!("explicit panic"));
+
+    assert!(!Lazy::is_poisoned(&PANIC));
+    assert!(std::panic::catch_unwind(|| *PANIC).is_err());
+    assert!(std::panic::catch_unwind(|| *PANIC).is_err());
+    assert!(Lazy::is_poisoned(&PANIC));
+}
