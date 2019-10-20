@@ -1,6 +1,8 @@
 //! Generic definition and implementation of the [`Lazy`] type.
 
+use core::mem::ManuallyDrop;
 use core::ops::Deref;
+use core::ptr;
 
 use crate::cell::{Block, OnceCell};
 
@@ -13,7 +15,7 @@ use crate::cell::{Block, OnceCell};
 #[derive(Debug)]
 pub struct Lazy<T, B, F = fn() -> T> {
     cell: OnceCell<T, B>,
-    init: F,
+    init: ManuallyDrop<F>,
 }
 
 /********** impl inherent *************************************************************************/
@@ -23,7 +25,7 @@ impl<T, B, F> Lazy<T, B, F> {
     ///
     /// # Examples
     ///
-    /// The `init` argument can be either a function pointer or a [`Fn`]
+    /// The `init` argument can be a simple function pointer or any [`FnOnce`]
     /// closure.
     ///
     /// ```
@@ -34,14 +36,14 @@ impl<T, B, F> Lazy<T, B, F> {
     /// ```
     #[inline]
     pub const fn new(init: F) -> Self {
-        Self { cell: OnceCell::new(), init }
+        Self { cell: OnceCell::new(), init: ManuallyDrop::new(init) }
     }
 }
 
 impl<T, B, F> Lazy<T, B, F>
 where
     B: Block,
-    F: Fn() -> T,
+    F: FnOnce() -> T,
 {
     /// Returns `true` if the [`Lazy`] has been successfully initialized.
     #[inline]
@@ -66,7 +68,10 @@ where
     /// panics or if the [`Lazy`] is poisoned.
     #[inline]
     pub fn get_or_init(lazy: &Self) -> &T {
-        lazy.cell.get_or_init(|| (lazy.init)())
+        lazy.cell.get_or_init(|| {
+            let func = unsafe { ptr::read(&*lazy.init) };
+            func()
+        })
     }
 }
 
@@ -75,7 +80,7 @@ where
 impl<T, B, F> Deref for Lazy<T, B, F>
 where
     B: Block,
-    F: Fn() -> T,
+    F: FnOnce() -> T,
 {
     type Target = T;
 

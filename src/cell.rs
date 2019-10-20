@@ -193,7 +193,9 @@ impl<T, B: Block> OnceCell<T, B> {
             return;
         }
 
-        if let Err(TryBlockError::WouldBlock(_)) = self.try_init_inner(func) {
+        let mut func = Some(func);
+        let mut once = || func.take().unwrap()();
+        if let Err(TryBlockError::WouldBlock(_)) = self.try_init_inner(&mut once) {
             B::block(&self.state);
         }
     }
@@ -244,7 +246,9 @@ impl<T, B: Block> OnceCell<T, B> {
             return Err(TryInitError::AlreadyInit);
         }
 
-        self.try_init_inner(func)?;
+        let mut func = Some(func);
+        let mut once = || func.take().unwrap()();
+        self.try_init_inner(&mut once)?;
         Ok(())
     }
 
@@ -321,7 +325,9 @@ impl<T, B: Block> OnceCell<T, B> {
             return unsafe { self.get_unchecked() };
         }
 
-        match self.try_init_inner(func) {
+        let mut func = Some(func);
+        let mut once = || func.take().unwrap()();
+        match self.try_init_inner(&mut once) {
             Ok(inner) => inner,
             Err(TryBlockError::AlreadyInit) => unsafe { self.get_unchecked() },
             Err(TryBlockError::WouldBlock(_)) => {
@@ -350,14 +356,16 @@ impl<T, B: Block> OnceCell<T, B> {
             return Ok(unsafe { self.get_unchecked() });
         }
 
-        Ok(self.try_init_inner(func)?)
+        let mut func = Some(func);
+        let mut once = || func.take().unwrap()();
+        Ok(self.try_init_inner(&mut once)?)
     }
 
     /// This method is annotated with `#[cold]` in order to keep it out of the
     /// fast path.
     #[inline(never)]
     #[cold]
-    fn try_init_inner(&self, func: impl FnOnce() -> T) -> Result<&T, TryBlockError> {
+    fn try_init_inner(&self, func: &mut dyn FnMut() -> T) -> Result<&T, TryBlockError> {
         let guard = PanicGuard::<B>::try_from(&self.state)?;
         unsafe {
             let inner = &mut *self.inner.get();
