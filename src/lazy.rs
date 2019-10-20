@@ -60,7 +60,7 @@ where
     /// Returns a reference to the already initialized inner value or
     /// initializes it first.
     ///
-    /// This has the same effect as using the `deref` operator on a [`Lazy`].
+    /// This has the same effect as using the [`Deref`] operator on a [`Lazy`].
     ///
     /// # Panics
     ///
