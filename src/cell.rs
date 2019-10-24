@@ -7,6 +7,7 @@ use core::fmt;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr;
+use core::sync::atomic::Ordering;
 
 use crate::state::{AtomicOnceState, OnceState, TryBlockError, Waiter};
 use crate::{Internal, POISON_PANIC_MSG};
@@ -84,7 +85,7 @@ impl<T, B> OnceCell<T, B> {
     /// ```
     #[inline]
     pub fn into_inner(self) -> Option<T> {
-        let res = match self.state.load().expect(POISON_PANIC_MSG) {
+        let res = match self.state.load(Ordering::Relaxed).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Some(unsafe { self.read_unchecked() }),
             _ => None,
         };
@@ -99,7 +100,7 @@ impl<T, B> OnceCell<T, B> {
     /// never blocks.
     #[inline]
     pub fn is_initialized(&self) -> bool {
-        self.state.load() == Ok(OnceState::Ready)
+        self.state.load(Ordering::Relaxed) == Ok(OnceState::Ready)
     }
 
     /// Returns true if the [`OnceCell`] has been poisoned during
@@ -109,7 +110,7 @@ impl<T, B> OnceCell<T, B> {
     /// never blocks.
     #[inline]
     pub fn is_poisoned(&self) -> bool {
-        self.state.load().is_err()
+        self.state.load(Ordering::Relaxed).is_err()
     }
 
     /// Returns a reference to the inner value without checking whether the
@@ -276,7 +277,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// ```
     #[inline]
     pub fn get(&self) -> Option<&T> {
-        match self.state.load().expect(POISON_PANIC_MSG) {
+        match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Some(unsafe { self.get_unchecked() }),
             OnceState::WouldBlock(_) => {
                 B::block(&self.state);
@@ -303,7 +304,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn try_get(&self) -> Result<&T, TryGetError> {
-        match self.state.load().expect(POISON_PANIC_MSG) {
+        match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
             OnceState::Uninit => Err(TryGetError::Uninit),
             OnceState::WouldBlock(_) => Err(TryGetError::WouldBlock),
@@ -321,7 +322,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn get_or_init(&self, func: impl FnOnce() -> T) -> &T {
-        if let OnceState::Ready = self.state.load().expect(POISON_PANIC_MSG) {
+        if let OnceState::Ready = self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             return unsafe { self.get_unchecked() };
         }
 
@@ -546,7 +547,7 @@ impl<'a, B: Block> TryFrom<&'a AtomicOnceState> for PanicGuard<'a, B> {
 
     #[inline]
     fn try_from(state: &'a AtomicOnceState) -> Result<Self, Self::Error> {
-        state.try_block()?;
+        state.try_block(Ordering::Acquire)?;
         Ok(Self { has_panicked: true, state, _marker: PhantomData })
     }
 }
@@ -556,8 +557,11 @@ impl<'a, B: Block> TryFrom<&'a AtomicOnceState> for PanicGuard<'a, B> {
 impl<B: Block> Drop for PanicGuard<'_, B> {
     #[inline]
     fn drop(&mut self) {
-        let waiters =
-            if self.has_panicked { self.state.swap_poisoned() } else { self.state.swap_ready() };
+        let waiters = if self.has_panicked {
+            self.state.swap_poisoned(Ordering::Release)
+        } else {
+            self.state.swap_ready(Ordering::Release)
+        };
 
         B::unblock(waiters);
     }

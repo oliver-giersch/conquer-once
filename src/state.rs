@@ -1,8 +1,5 @@
 use core::convert::{TryFrom, TryInto};
-use core::sync::atomic::{
-    AtomicUsize,
-    Ordering::{Acquire, Release},
-};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::POISON_PANIC_MSG;
 
@@ -34,21 +31,26 @@ impl AtomicOnceState {
     }
 
     #[inline]
-    pub fn load(&self) -> Result<OnceState, PoisonError> {
-        self.0.load(Acquire).try_into()
+    pub fn load(&self, order: Ordering) -> Result<OnceState, PoisonError> {
+        self.0.load(order).try_into()
     }
 
     #[inline]
-    pub fn try_swap_waiters(&self, current: Waiter, new: Waiter) -> Result<(), OnceState> {
-        match self.0.compare_and_swap(current.0, new.0, Acquire) {
+    pub fn try_swap_waiters(
+        &self,
+        current: Waiter,
+        new: Waiter,
+        order: Ordering,
+    ) -> Result<(), OnceState> {
+        match self.0.compare_and_swap(current.0, new.0, order) {
             prev if prev == current.0 => Ok(()),
             prev => Err(prev.try_into().expect(POISON_PANIC_MSG)),
         }
     }
 
     #[inline]
-    pub fn try_block(&self) -> Result<(), TryBlockError> {
-        let prev = self.0.compare_and_swap(UNINIT, WOULD_BLOCK, Acquire);
+    pub fn try_block(&self, order: Ordering) -> Result<(), TryBlockError> {
+        let prev = self.0.compare_and_swap(UNINIT, WOULD_BLOCK, order);
         match prev.try_into().expect(POISON_PANIC_MSG) {
             Uninit => Ok(()),
             Ready => Err(TryBlockError::AlreadyInit),
@@ -57,13 +59,13 @@ impl AtomicOnceState {
     }
 
     #[inline]
-    pub fn swap_ready(&self) -> Waiter {
-        Waiter(self.0.swap(READY, Release))
+    pub fn swap_ready(&self, order: Ordering) -> Waiter {
+        Waiter(self.0.swap(READY, order))
     }
 
     #[inline]
-    pub fn swap_poisoned(&self) -> Waiter {
-        Waiter(self.0.swap(POISONED, Release))
+    pub fn swap_poisoned(&self, order: Ordering) -> Waiter {
+        Waiter(self.0.swap(POISONED, order))
     }
 }
 

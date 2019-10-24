@@ -1,7 +1,5 @@
-use std::sync::atomic::{
-    AtomicBool,
-    Ordering::{Acquire, Release},
-};
+use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, Thread};
 
 use conquer_util::BackOff;
@@ -9,12 +7,10 @@ use conquer_util::BackOff;
 use crate::cell::Block;
 use crate::state::{
     AtomicOnceState,
-    OnceState::{Ready, WouldBlock},
+    OnceState::{Ready, Uninit, WouldBlock},
     Waiter,
 };
-
-use crate::Internal;
-use crate::POISON_PANIC_MSG;
+use crate::{Internal, POISON_PANIC_MSG};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // ParkThread
@@ -36,54 +32,60 @@ impl Block for ParkThread {
     fn block(state: &AtomicOnceState) {
         let backoff = BackOff::new();
         let head = loop {
-            backoff.spin();
-
-            let state = state.load().expect(POISON_PANIC_MSG);
+            let state = state.load(Ordering::Acquire).expect(POISON_PANIC_MSG);
             match state {
                 Ready => return,
                 WouldBlock(waiter) if backoff.advise_yield() => break waiter,
                 _ => {}
             }
+
+            backoff.spin();
         };
         backoff.reset();
 
         let mut waiter = StackWaiter {
-            thread: Some(thread::current()),
+            thread: Cell::new(Some(thread::current())),
             ready: AtomicBool::default(),
             next: head.into(),
         };
 
         let mut curr = head;
-        let new_head = Waiter::from(&mut waiter as *mut StackWaiter);
+        let new_head = Waiter::from(&waiter as *const StackWaiter);
 
-        while let Err(error) = state.try_swap_waiters(curr, new_head) {
-            if let WouldBlock(ptr) = error {
-                curr = ptr;
-                waiter.next = ptr.into();
-                backoff.spin();
-            } else {
-                return;
+        while let Err(error) = state.try_swap_waiters(curr, new_head, Ordering::AcqRel) {
+            match error {
+                WouldBlock(ptr) => {
+                    // the waiter hasn't been shared yet, so it's still safe to mutate the next pointer
+                    curr = ptr;
+                    waiter.next = ptr.into();
+                    backoff.spin();
+                }
+                Ready => return,
+                Uninit => unreachable!(),
             }
         }
 
-        while !waiter.ready.load(Acquire) {
+        while !waiter.ready.load(Ordering::Acquire) {
             thread::park();
         }
 
-        assert_eq!(state.load().expect(POISON_PANIC_MSG), Ready); // propagates poisoning
+        // propagates poisoning
+        assert_eq!(state.load(Ordering::Acquire).expect(POISON_PANIC_MSG), Ready);
     }
 
     #[inline]
     fn unblock(waiter: Waiter) {
-        let mut queue: *mut StackWaiter = waiter.into();
-
+        let mut queue: *const StackWaiter = waiter.into();
         unsafe {
-            while let Some(curr) = queue.as_mut() {
+            while let Some(curr) = queue.as_ref() {
                 queue = curr.next;
 
+                // there can be now data race when mutating the thread-cell as only the unblocking
+                // thread will access it
                 let thread = curr.thread.take().unwrap();
-                // the stack waiter could be dropped right after this store!
-                curr.ready.store(true, Release);
+                // the stack waiter can be dropped once this store becomes visible, so the thread
+                // MUST be taken out beforehand
+                curr.ready.store(true, Ordering::Release);
 
                 thread.unpark();
             }
@@ -97,23 +99,23 @@ impl Block for ParkThread {
 
 #[repr(align(4))]
 struct StackWaiter {
-    thread: Option<Thread>,
+    thread: Cell<Option<Thread>>,
     ready: AtomicBool,
-    next: *mut StackWaiter,
+    next: *const StackWaiter,
 }
 
 /********** impl From *****************************************************************************/
 
-impl From<*mut StackWaiter> for Waiter {
+impl From<*const StackWaiter> for Waiter {
     #[inline]
-    fn from(waiter: *mut StackWaiter) -> Self {
+    fn from(waiter: *const StackWaiter) -> Self {
         Self(waiter as usize)
     }
 }
 
-impl From<Waiter> for *mut StackWaiter {
+impl From<Waiter> for *const StackWaiter {
     #[inline]
     fn from(waiter: Waiter) -> Self {
-        waiter.0 as *mut StackWaiter
+        waiter.0 as *const StackWaiter
     }
 }

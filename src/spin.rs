@@ -1,7 +1,7 @@
 //! Synchronized one-time and lazy initialization primitives that use spin-locks
 //! in case of concurrent accesses under contention.
 
-use core::sync::atomic::spin_loop_hint;
+use core::sync::atomic::{spin_loop_hint, Ordering};
 
 use crate::cell::Block;
 use crate::internal::Internal;
@@ -56,7 +56,7 @@ impl Internal for Spin {}
 impl Block for Spin {
     #[inline]
     fn block(state: &AtomicOnceState) {
-        while let WouldBlock(_) = state.load().expect(POISON_PANIC_MSG) {
+        while let WouldBlock(_) = state.load(Ordering::Relaxed).expect(POISON_PANIC_MSG) {
             spin_loop_hint()
         }
     }
