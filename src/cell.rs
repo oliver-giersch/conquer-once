@@ -277,6 +277,8 @@ impl<T, B: Block> OnceCell<T, B> {
     /// ```
     #[inline]
     pub fn get(&self) -> Option<&T> {
+        // (cell:1) this acquire load syncs with the release swaps (guard:2) or (guard:3) and the
+        // acq-rel CAS (wait:2)
         match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Some(unsafe { self.get_unchecked() }),
             OnceState::WouldBlock(_) => {
@@ -304,6 +306,8 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn try_get(&self) -> Result<&T, TryGetError> {
+        // (cell:2) this acquire load syncs with the release swaps (guard:2) or (guard:3) and the
+        // acq-rel CAS (wait:2)
         match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
             OnceState::Uninit => Err(TryGetError::Uninit),
@@ -322,6 +326,8 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn get_or_init(&self, func: impl FnOnce() -> T) -> &T {
+        // (cell:3) this acquire load syncs with the release swaps (guard:2) or (guard:3) and the
+        // acq-rel CAS (wait:2)
         if let OnceState::Ready = self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             return unsafe { self.get_unchecked() };
         }
@@ -547,6 +553,8 @@ impl<'a, B: Block> TryFrom<&'a AtomicOnceState> for PanicGuard<'a, B> {
 
     #[inline]
     fn try_from(state: &'a AtomicOnceState) -> Result<Self, Self::Error> {
+        // (guard:1) this acquire load syncs-with the release swaps (guard:2), (guard:3) and the
+        // acq-rel CAS (wait:2)
         state.try_block(Ordering::Acquire)?;
         Ok(Self { has_panicked: true, state, _marker: PhantomData })
     }
@@ -558,8 +566,12 @@ impl<B: Block> Drop for PanicGuard<'_, B> {
     #[inline]
     fn drop(&mut self) {
         let waiters = if self.has_panicked {
+            // (guard:2) this release swap syncs with the acquire loads (spin:1), (wait:1),
+            // (guard:1), (cell:1), (cell:2), (cell:3)
             self.state.swap_poisoned(Ordering::Release)
         } else {
+            // (guard:3) this release swap syncs with the acquire loads (spin:1), (wait:1),
+            // (guard:1), (cell:1), (cell:2), (cell:3)
             self.state.swap_ready(Ordering::Release)
         };
 

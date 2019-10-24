@@ -42,8 +42,8 @@ impl AtomicOnceState {
         new: Waiter,
         order: Ordering,
     ) -> Result<(), OnceState> {
-        match self.0.compare_and_swap(current.0, new.0, order) {
-            prev if prev == current.0 => Ok(()),
+        match self.0.compare_and_swap(current.into(), new.into(), order) {
+            prev if prev == current.into() => Ok(()),
             prev => Err(prev.try_into().expect(POISON_PANIC_MSG)),
         }
     }
@@ -60,12 +60,12 @@ impl AtomicOnceState {
 
     #[inline]
     pub fn swap_ready(&self, order: Ordering) -> Waiter {
-        Waiter(self.0.swap(READY, order))
+        Waiter::from(self.0.swap(READY, order))
     }
 
     #[inline]
     pub fn swap_poisoned(&self, order: Ordering) -> Waiter {
-        Waiter(self.0.swap(POISONED, order))
+        Waiter::from(self.0.swap(POISONED, order))
     }
 }
 
@@ -91,7 +91,7 @@ impl TryFrom<usize> for OnceState {
             POISONED => Err(PoisonError),
             UNINIT => Ok(Uninit),
             READY => Ok(Ready),
-            waiter => Ok(WouldBlock(Waiter(waiter))),
+            waiter => Ok(WouldBlock(Waiter(waiter as *const ()))),
         }
     }
 }
@@ -118,4 +118,20 @@ pub struct PoisonError;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Waiter(pub usize);
+pub struct Waiter(pub(crate) *const ());
+
+/********** impl From *****************************************************************************/
+
+impl From<usize> for Waiter {
+    #[inline]
+    fn from(state: usize) -> Self {
+        Self(state as *const ())
+    }
+}
+
+impl From<Waiter> for usize {
+    #[inline]
+    fn from(waiter: Waiter) -> Self {
+        waiter.0 as usize
+    }
+}

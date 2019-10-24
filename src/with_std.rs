@@ -32,6 +32,8 @@ impl Block for ParkThread {
     fn block(state: &AtomicOnceState) {
         let backoff = BackOff::new();
         let head = loop {
+            // (wait:1) this acquire load syncs-with the release swaps (guard:2) or (guard:3) and
+            // the acq-rel CAS (wait:2)
             let state = state.load(Ordering::Acquire).expect(POISON_PANIC_MSG);
             match state {
                 Ready => return,
@@ -46,45 +48,53 @@ impl Block for ParkThread {
         let mut waiter = StackWaiter {
             thread: Cell::new(Some(thread::current())),
             ready: AtomicBool::default(),
-            next: head.into(),
+            next: head.into_stack_waiter(),
         };
 
         let mut curr = head;
         let new_head = Waiter::from(&waiter as *const StackWaiter);
 
+        // (wait:2) this acq-rel CAS syncs-with the release swaps (guard:2) or (guard:3) and the
+        // acquire loads (wait:1), (guard:1), (cell:1), (cell:2), (cell:3)
         while let Err(error) = state.try_swap_waiters(curr, new_head, Ordering::AcqRel) {
             match error {
                 WouldBlock(ptr) => {
                     // the waiter hasn't been shared yet, so it's still safe to mutate the next pointer
                     curr = ptr;
-                    waiter.next = ptr.into();
+                    waiter.next = ptr.into_stack_waiter();
                     backoff.spin();
                 }
+                // acquire-release is required here to enforce acquire ordering in the failure case,
+                // which guarantees that any (non-atomic) stores to the cell's inner state preceding
+                // (guard:2) or (guard:3) have become visible, if the function returns;
+                // alternatively an explicit acquire fence could be placed into this path
                 Ready => return,
                 Uninit => unreachable!(),
             }
         }
 
+        // (ready:1) this acquire load syncs-with the release store (ready:2)
         while !waiter.ready.load(Ordering::Acquire) {
             thread::park();
         }
 
         // propagates poisoning
+        // (wait:3) this acquire load syncs-with the release stores (guard:2) or (guard:3)
         assert_eq!(state.load(Ordering::Acquire).expect(POISON_PANIC_MSG), Ready);
     }
 
     #[inline]
     fn unblock(waiter: Waiter) {
-        let mut queue: *const StackWaiter = waiter.into();
+        let mut queue = waiter.into_stack_waiter();
         unsafe {
             while let Some(curr) = queue.as_ref() {
                 queue = curr.next;
 
                 // there can be now data race when mutating the thread-cell as only the unblocking
-                // thread will access it
+                // thread will access it, the stack waiter can dropped as soon as the following
+                // store becomes visible, so the thread MUST be taken out first
                 let thread = curr.thread.take().unwrap();
-                // the stack waiter can be dropped once this store becomes visible, so the thread
-                // MUST be taken out beforehand
+                // (ready:2) this release store syncs-with the acquire load (ready:1)
                 curr.ready.store(true, Ordering::Release);
 
                 thread.unpark();
@@ -109,13 +119,15 @@ struct StackWaiter {
 impl From<*const StackWaiter> for Waiter {
     #[inline]
     fn from(waiter: *const StackWaiter) -> Self {
-        Self(waiter as usize)
+        Self(waiter as *const ())
     }
 }
 
-impl From<Waiter> for *const StackWaiter {
+/********** ext impl Waiter ***********************************************************************/
+
+impl Waiter {
     #[inline]
-    fn from(waiter: Waiter) -> Self {
-        waiter.0 as *const StackWaiter
+    fn into_stack_waiter(self) -> *const StackWaiter {
+        self.0 as *const _
     }
 }
