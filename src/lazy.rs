@@ -1,5 +1,8 @@
 //! Generic definition and implementation of the [`Lazy`] type.
 
+use core::borrow::Borrow;
+use core::convert::AsRef;
+use core::fmt;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::ptr;
@@ -12,7 +15,6 @@ use crate::cell::{Block, OnceCell};
 
 /// A type for lazy initialization of e.g. global static variables, which
 /// provides the same functionality as the `lazy_static!` macro.
-#[derive(Debug)]
 pub struct Lazy<T, B, F = fn() -> T> {
     cell: OnceCell<T, B>,
     init: ManuallyDrop<F>,
@@ -36,7 +38,7 @@ impl<T, B, F> Lazy<T, B, F> {
     /// ```
     #[inline]
     pub const fn new(init: F) -> Self {
-        Self { cell: OnceCell::new(), init: ManuallyDrop::new(init) }
+        Self { cell: OnceCell::uninit(), init: ManuallyDrop::new(init) }
     }
 }
 
@@ -72,6 +74,60 @@ where
             let func = unsafe { ptr::read(&*lazy.init) };
             func()
         })
+    }
+}
+
+/********** impl AsRef ****************************************************************************/
+
+impl<T, B, F> AsRef<T> for Lazy<T, B, F>
+where
+    B: Block,
+    F: FnOnce() -> T,
+{
+    #[inline]
+    fn as_ref(&self) -> &T {
+        Lazy::get_or_init(self)
+    }
+}
+
+/********** impl Borrow ***************************************************************************/
+
+impl<T, B, F> Borrow<T> for Lazy<T, B, F>
+where
+    B: Block,
+    F: FnOnce() -> T,
+{
+    #[inline]
+    fn borrow(&self) -> &T {
+        Lazy::get_or_init(self)
+    }
+}
+
+/********** impl Debug ****************************************************************************/
+
+impl<T, B, F> fmt::Debug for Lazy<T, B, F>
+where
+    T: fmt::Debug,
+    B: Block,
+    F: FnOnce() -> T,
+{
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&self.cell, f)
+    }
+}
+
+/********** impl Display **************************************************************************/
+
+impl<T, B, F> fmt::Display for Lazy<T, B, F>
+where
+    T: fmt::Display,
+    B: Block,
+    F: FnOnce() -> T,
+{
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(Self::get_or_init(self), f)
     }
 }
 

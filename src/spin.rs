@@ -56,7 +56,7 @@ impl Internal for Spin {}
 impl Block for Spin {
     #[inline]
     fn block(state: &AtomicOnceState) {
-        // (spin:1) this acquire load syncs-with the release stores (guard:2) or (guard:3) 
+        // (spin:1) this acquire load syncs-with the acq-rel swap (guard:2)
         while let WouldBlock(_) = state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             spin_loop_hint()
         }

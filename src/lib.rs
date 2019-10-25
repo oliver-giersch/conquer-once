@@ -137,7 +137,7 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 ///     msg: &'static str,
 /// }
 ///
-/// static CONFIG: OnceCell<Configuration> = OnceCell::new();
+/// static CONFIG: OnceCell<Configuration> = OnceCell::uninit();
 ///
 /// // producer thread
 /// CONFIG.init_once(|| Configuration {
@@ -169,7 +169,7 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 /// use conquer_once::Once;
 ///
 /// static mut GLOBAL: usize = 0;
-/// static INIT: Once = Once::new();
+/// static INIT: Once = Once::uninit();
 ///
 /// fn get_global() -> usize {
 ///     // this is safe because the `Once` ensures the `static mut` is assigned

@@ -63,7 +63,7 @@ macro_rules! generate_tests {
             const WAITERS: usize = 4;
 
             let barrier = Arc::new(Barrier::new(WAITERS + 1));
-            let cell = Arc::new(OnceCell::new());
+            let cell = Arc::new(OnceCell::uninit());
 
             let handles: Vec<_> = (0..WAITERS)
                 .map(|id| {
@@ -97,7 +97,7 @@ macro_rules! generate_tests {
             const WAITERS: usize = 4;
 
             let barrier = Arc::new(Barrier::new(WAITERS + 1));
-            let cell = Arc::new(OnceCell::new());
+            let cell = Arc::new(OnceCell::uninit());
 
             let handles: Vec<_> = (0..WAITERS)
                 .map(|id| {
@@ -129,7 +129,7 @@ macro_rules! generate_tests {
         fn once_cell_into_inner() {
             let count = Cell::new(0);
 
-            let cell = OnceCell::new();
+            let cell = OnceCell::uninit();
             cell.init_once(|| DropGuard(&count));
 
             let inner = cell.into_inner().unwrap();
@@ -141,7 +141,7 @@ macro_rules! generate_tests {
         fn once_cell_drop() {
             let count = Cell::new(0);
 
-            let cell = OnceCell::new();
+            let cell = OnceCell::uninit();
             cell.init_once(|| DropGuard(&count));
 
             drop(cell);

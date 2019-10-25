@@ -2,7 +2,6 @@
 //! type.
 
 use core::cell::UnsafeCell;
-use core::convert::TryFrom;
 use core::fmt;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
@@ -46,7 +45,7 @@ unsafe impl<T, B> Sync for OnceCell<T, B> where T: Sync {}
 impl<T, B> OnceCell<T, B> {
     /// Creates a new uninitialized [`OnceCell`].
     #[inline]
-    pub const fn new() -> Self {
+    pub const fn uninit() -> Self {
         Self {
             state: AtomicOnceState::new(),
             inner: UnsafeCell::new(MaybeUninit::uninit()),
@@ -56,7 +55,7 @@ impl<T, B> OnceCell<T, B> {
 
     /// Creates a new [`OnceCell`] pre-initialized with `value`.
     #[inline]
-    pub const fn initialized(value: T) -> Self {
+    pub const fn new(value: T) -> Self {
         Self {
             state: AtomicOnceState::ready(),
             inner: UnsafeCell::new(MaybeUninit::new(value)),
@@ -76,20 +75,16 @@ impl<T, B> OnceCell<T, B> {
     /// ```
     /// # use conquer_once::spin::OnceCell;
     ///
-    /// let uninit: OnceCell<i32> = OnceCell::new();
+    /// let uninit: OnceCell<i32> = OnceCell::uninit();
     /// assert!(uninit.into_inner().is_none());
     ///
-    /// let once = OnceCell::new();
+    /// let once = OnceCell::uninit();
     /// once.init_once(|| "initialized");
     /// assert_eq!(once.into_inner(), Some("initialized"));
     /// ```
     #[inline]
     pub fn into_inner(self) -> Option<T> {
-        let res = match self.state.load(Ordering::Relaxed).expect(POISON_PANIC_MSG) {
-            OnceState::Ready => Some(unsafe { self.read_unchecked() }),
-            _ => None,
-        };
-
+        let res = unsafe { self.read_relaxed() };
         mem::forget(self);
         res
     }
@@ -100,7 +95,8 @@ impl<T, B> OnceCell<T, B> {
     /// never blocks.
     #[inline]
     pub fn is_initialized(&self) -> bool {
-        self.state.load(Ordering::Relaxed) == Ok(OnceState::Ready)
+        // (cell:1) this acquire load syncs-with the acq-rel swap (guard:2)
+        self.state.load(Ordering::Acquire) == Ok(OnceState::Ready)
     }
 
     /// Returns true if the [`OnceCell`] has been poisoned during
@@ -130,7 +126,7 @@ impl<T, B> OnceCell<T, B> {
     /// use conquer_once::OnceCell;
     ///
     /// // let cell = ...
-    /// # let cell = OnceCell::new();
+    /// # let cell = OnceCell::uninit();
     /// # cell.init_once(|| 0);
     ///
     /// let res = if cell.is_initialized() {
@@ -148,8 +144,11 @@ impl<T, B> OnceCell<T, B> {
     }
 
     #[inline]
-    unsafe fn read_unchecked(&self) -> T {
-        ptr::read(self.get_unchecked())
+    unsafe fn read_relaxed(&self) -> Option<T> {
+        match self.state.load(Ordering::Relaxed).expect(POISON_PANIC_MSG) {
+            OnceState::Ready => Some(ptr::read(self.get_unchecked())),
+            _ => None,
+        }
     }
 }
 
@@ -173,7 +172,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// ```
     /// use conquer_once::OnceCell;
     ///
-    /// let cell = OnceCell::new();
+    /// let cell = OnceCell::uninit();
     /// cell.init_once(|| {
     ///     // expensive calculation
     ///     (0..1_000).map(|i| i * i).sum::<usize>()
@@ -225,7 +224,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// ```
     /// use conquer_once::{OnceCell, TryInitError};
     ///
-    /// let cell = OnceCell::new();
+    /// let cell = OnceCell::uninit();
     ///
     /// // .. in thread 1
     /// let res = cell.try_init_once(|| {
@@ -268,7 +267,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// ```
     /// use conquer_once::OnceCell;
     ///
-    /// let cell = OnceCell::new();
+    /// let cell = OnceCell::uninit();
     /// assert_eq!(cell.get(), None);
     /// cell.init_once(|| {
     ///     1
@@ -277,8 +276,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// ```
     #[inline]
     pub fn get(&self) -> Option<&T> {
-        // (cell:1) this acquire load syncs with the release swaps (guard:2) or (guard:3) and the
-        // acq-rel CAS (wait:2)
+        // (cell:2) this acquire load syncs-with the acq-rel swap (guard:2)
         match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Some(unsafe { self.get_unchecked() }),
             OnceState::WouldBlock(_) => {
@@ -306,8 +304,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn try_get(&self) -> Result<&T, TryGetError> {
-        // (cell:2) this acquire load syncs with the release swaps (guard:2) or (guard:3) and the
-        // acq-rel CAS (wait:2)
+        // (cell:3) this acquire load syncs-with the acq-rel swap (guard:2)
         match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
             OnceState::Uninit => Err(TryGetError::Uninit),
@@ -326,8 +323,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn get_or_init(&self, func: impl FnOnce() -> T) -> &T {
-        // (cell:3) this acquire load syncs with the release swaps (guard:2) or (guard:3) and the
-        // acq-rel CAS (wait:2)
+        // (cell:4) this acquire load syncs-with the acq-rel swap (guard:2)
         if let OnceState::Ready = self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             return unsafe { self.get_unchecked() };
         }
@@ -373,7 +369,7 @@ impl<T, B: Block> OnceCell<T, B> {
     #[inline(never)]
     #[cold]
     fn try_init_inner(&self, func: &mut dyn FnMut() -> T) -> Result<&T, TryBlockError> {
-        let guard = PanicGuard::<B>::try_from(&self.state)?;
+        let guard = PanicGuard::<B>::try_block(&self.state)?;
         unsafe {
             let inner = &mut *self.inner.get();
             inner.as_mut_ptr().write(func());
@@ -386,17 +382,10 @@ impl<T, B: Block> OnceCell<T, B> {
 
 /********** impl Debug ****************************************************************************/
 
-impl<T: fmt::Debug, B> fmt::Debug for OnceCell<T, B> {
+impl<T: fmt::Debug, B: Block> fmt::Debug for OnceCell<T, B> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut debug = f.debug_struct("OnceCell");
-        if self.is_initialized() {
-            debug.field("initialized", &true).field("inner", unsafe { self.get_unchecked() });
-        } else {
-            debug.field("initialized", &false);
-        }
-
-        debug.finish()
+        f.debug_struct("OnceCell").field("inner", &self.try_get().ok()).finish()
     }
 }
 
@@ -405,9 +394,7 @@ impl<T: fmt::Debug, B> fmt::Debug for OnceCell<T, B> {
 impl<T, B> Drop for OnceCell<T, B> {
     #[inline]
     fn drop(&mut self) {
-        if self.is_initialized() {
-            unsafe { mem::drop(self.read_unchecked()) }
-        }
+        unsafe { mem::drop(self.read_relaxed()) }
     }
 }
 
@@ -532,31 +519,26 @@ impl std::error::Error for WouldBlockError {}
 /// closure.
 #[derive(Debug)]
 struct PanicGuard<'a, B: Block> {
-    has_panicked: bool,
     state: &'a AtomicOnceState,
+    poison: bool,
     _marker: PhantomData<B>,
 }
 
 impl<'a, B: Block> PanicGuard<'a, B> {
+    /// Attempts to block the [`OnceCell`] and return a guard on success.
+    #[inline]
+    fn try_block(state: &'a AtomicOnceState) -> Result<Self, TryBlockError> {
+        // (guard:1) this acquire CAS syncs-with the acq-rel swap (guard:2) and the acq-rel CAS
+        // (wait:2)
+        state.try_block(Ordering::Acquire)?;
+        Ok(Self { state, poison: true, _marker: PhantomData })
+    }
+
     /// Consumes the guard and assures that no panic has occurred.
     #[inline]
     fn disarm(mut self) {
-        self.has_panicked = false;
+        self.poison = false;
         mem::drop(self);
-    }
-}
-
-/********** impl TryFrom **************************************************************************/
-
-impl<'a, B: Block> TryFrom<&'a AtomicOnceState> for PanicGuard<'a, B> {
-    type Error = TryBlockError;
-
-    #[inline]
-    fn try_from(state: &'a AtomicOnceState) -> Result<Self, Self::Error> {
-        // (guard:1) this acquire load syncs-with the release swaps (guard:2), (guard:3) and the
-        // acq-rel CAS (wait:2)
-        state.try_block(Ordering::Acquire)?;
-        Ok(Self { has_panicked: true, state, _marker: PhantomData })
     }
 }
 
@@ -565,16 +547,14 @@ impl<'a, B: Block> TryFrom<&'a AtomicOnceState> for PanicGuard<'a, B> {
 impl<B: Block> Drop for PanicGuard<'_, B> {
     #[inline]
     fn drop(&mut self) {
-        let waiters = if self.has_panicked {
-            // (guard:2) this release swap syncs with the acquire loads (spin:1), (wait:1),
-            // (guard:1), (cell:1), (cell:2), (cell:3)
-            self.state.swap_poisoned(Ordering::Release)
+        // (guard:2) this acq-rel swap syncs-with the acq-rel CAS (wait:2) and the acquire loads
+        // (cell:0) through (cell:3), (wait:1) and the acquire CAS (guard:1)
+        let waiter_queue = if self.poison {
+            self.state.swap_poisoned(Ordering::AcqRel)
         } else {
-            // (guard:3) this release swap syncs with the acquire loads (spin:1), (wait:1),
-            // (guard:1), (cell:1), (cell:2), (cell:3)
-            self.state.swap_ready(Ordering::Release)
+            self.state.swap_ready(Ordering::AcqRel)
         };
 
-        B::unblock(waiters);
+        B::unblock(waiter_queue);
     }
 }
