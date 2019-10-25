@@ -5,7 +5,7 @@ use core::sync::atomic::{spin_loop_hint, Ordering};
 
 use crate::cell::Block;
 use crate::internal::Internal;
-use crate::state::{AtomicOnceState, OnceState::WouldBlock, Waiter};
+use crate::state::{AtomicOnceState, OnceState::WouldBlock, WaiterQueue};
 use crate::POISON_PANIC_MSG;
 
 /// A type for lazy initialization of e.g. global static variables, which
@@ -63,7 +63,7 @@ impl Block for Spin {
     }
 
     #[inline]
-    fn unblock(_: Waiter) {}
+    fn unblock(_: WaiterQueue) {}
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use core::mem::{self, MaybeUninit};
 use core::ptr;
 use core::sync::atomic::Ordering;
 
-use crate::state::{AtomicOnceState, OnceState, TryBlockError, Waiter};
+use crate::state::{AtomicOnceState, OnceState, TryBlockError, WaiterQueue};
 use crate::{Internal, POISON_PANIC_MSG};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -20,7 +20,7 @@ pub trait Block: Default + Internal {
     /// Blocks the current thread, until `state` is no longer blocking.
     fn block(state: &AtomicOnceState);
     /// Unblocks all waiting threads.
-    fn unblock(waiter: Waiter);
+    fn unblock(waiter: WaiterQueue);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

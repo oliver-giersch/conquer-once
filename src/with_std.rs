@@ -8,7 +8,7 @@ use crate::cell::Block;
 use crate::state::{
     AtomicOnceState,
     OnceState::{Ready, Uninit, WouldBlock},
-    Waiter,
+    WaiterQueue,
 };
 use crate::{Internal, POISON_PANIC_MSG};
 
@@ -31,13 +31,13 @@ impl Block for ParkThread {
     #[inline]
     fn block(state: &AtomicOnceState) {
         let backoff = BackOff::new();
-        let head = loop {
+        let queue = loop {
             // (wait:1) this acquire load syncs-with the release swaps (guard:2) and the acq-rel CAS
             // (wait:2)
             let state = state.load(Ordering::Acquire).expect(POISON_PANIC_MSG);
             match state {
                 Ready => return,
-                WouldBlock(waiter) if backoff.advise_yield() => break waiter,
+                WouldBlock(queue) if backoff.advise_yield() => break queue,
                 _ => {}
             }
 
@@ -48,20 +48,20 @@ impl Block for ParkThread {
         let mut waiter = StackWaiter {
             thread: Cell::new(Some(thread::current())),
             ready: AtomicBool::default(),
-            next: head.into_stack_waiter(),
+            next: queue.head(),
         };
 
-        let mut curr = head;
-        let new_head = Waiter::from(&waiter as *const StackWaiter);
+        let mut curr = queue;
+        let new_head = WaiterQueue::from(&waiter as *const StackWaiter);
 
         // (wait:2) this acq-rel CAS syncs-with the acq-rel swap (guard:2) and the acquire loads
         // (wait:1), (guard:1) and (cell:1) through (cell:4)
         while let Err(error) = state.try_swap_waiters(curr, new_head, Ordering::AcqRel) {
             match error {
-                WouldBlock(ptr) => {
+                WouldBlock(queue) => {
                     // the waiter hasn't been shared yet, so it's still safe to mutate the next pointer
-                    curr = ptr;
-                    waiter.next = ptr.into_stack_waiter();
+                    curr = queue;
+                    waiter.next = queue.head();
                     backoff.spin();
                 }
                 // acquire-release is required here to enforce acquire ordering in the failure case,
@@ -84,8 +84,8 @@ impl Block for ParkThread {
     }
 
     #[inline]
-    fn unblock(waiter_queue: Waiter) {
-        let mut curr = waiter_queue.into_stack_waiter();
+    fn unblock(waiter_queue: WaiterQueue) {
+        let mut curr = waiter_queue.head();
         while !curr.is_null() {
             let thread = unsafe {
                 let waiter = &*curr;
@@ -117,18 +117,18 @@ struct StackWaiter {
 
 /********** impl From *****************************************************************************/
 
-impl From<*const StackWaiter> for Waiter {
+impl From<*const StackWaiter> for WaiterQueue {
     #[inline]
     fn from(waiter: *const StackWaiter) -> Self {
-        Self(waiter as *const ())
+        Self { head: waiter as *const () }
     }
 }
 
 /********** ext impl Waiter ***********************************************************************/
 
-impl Waiter {
+impl WaiterQueue {
     #[inline]
-    fn into_stack_waiter(self) -> *const StackWaiter {
-        self.0 as *const _
+    fn head(self) -> *const StackWaiter {
+        self.head as *const _
     }
 }

@@ -38,8 +38,8 @@ impl AtomicOnceState {
     #[inline]
     pub fn try_swap_waiters(
         &self,
-        current: Waiter,
-        new: Waiter,
+        current: WaiterQueue,
+        new: WaiterQueue,
         order: Ordering,
     ) -> Result<(), OnceState> {
         match self.0.compare_and_swap(current.into(), new.into(), order) {
@@ -59,13 +59,13 @@ impl AtomicOnceState {
     }
 
     #[inline]
-    pub fn swap_ready(&self, order: Ordering) -> Waiter {
-        Waiter::from(self.0.swap(READY, order))
+    pub fn swap_ready(&self, order: Ordering) -> WaiterQueue {
+        WaiterQueue::from(self.0.swap(READY, order))
     }
 
     #[inline]
-    pub fn swap_poisoned(&self, order: Ordering) -> Waiter {
-        Waiter::from(self.0.swap(POISONED, order))
+    pub fn swap_poisoned(&self, order: Ordering) -> WaiterQueue {
+        WaiterQueue::from(self.0.swap(POISONED, order))
     }
 }
 
@@ -77,7 +77,7 @@ impl AtomicOnceState {
 pub enum OnceState {
     Uninit,
     Ready,
-    WouldBlock(Waiter),
+    WouldBlock(WaiterQueue),
 }
 
 /********** impl TryFrom **************************************************************************/
@@ -91,7 +91,7 @@ impl TryFrom<usize> for OnceState {
             POISONED => Err(PoisonError),
             UNINIT => Ok(Uninit),
             READY => Ok(Ready),
-            waiter => Ok(WouldBlock(Waiter(waiter as *const ()))),
+            waiter => Ok(WouldBlock(WaiterQueue::from(waiter))),
         }
     }
 }
@@ -103,7 +103,7 @@ impl TryFrom<usize> for OnceState {
 #[derive(Debug)]
 pub enum TryBlockError {
     AlreadyInit,
-    WouldBlock(Waiter),
+    WouldBlock(WaiterQueue),
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -118,20 +118,22 @@ pub struct PoisonError;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Waiter(pub(crate) *const ());
+pub struct WaiterQueue {
+    pub(crate) head: *const (),
+}
 
 /********** impl From *****************************************************************************/
 
-impl From<usize> for Waiter {
+impl From<usize> for WaiterQueue {
     #[inline]
     fn from(state: usize) -> Self {
-        Self(state as *const ())
+        Self { head: state as *const () }
     }
 }
 
-impl From<Waiter> for usize {
+impl From<WaiterQueue> for usize {
     #[inline]
-    fn from(waiter: Waiter) -> Self {
-        waiter.0 as usize
+    fn from(waiter: WaiterQueue) -> Self {
+        waiter.head as usize
     }
 }
