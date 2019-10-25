@@ -194,8 +194,9 @@ impl<T, B: Block> OnceCell<T, B> {
         }
 
         let mut func = Some(func);
-        let mut once = || func.take().unwrap()();
-        if let Err(TryBlockError::WouldBlock(_)) = self.try_init_inner(&mut once) {
+        if let Err(TryBlockError::WouldBlock(_)) =
+            self.try_init_inner(&mut || func.take().unwrap()())
+        {
             B::block(&self.state);
         }
     }
@@ -247,8 +248,7 @@ impl<T, B: Block> OnceCell<T, B> {
         }
 
         let mut func = Some(func);
-        let mut once = || func.take().unwrap()();
-        self.try_init_inner(&mut once)?;
+        self.try_init_inner(&mut || func.take().unwrap()())?;
         Ok(())
     }
 
@@ -329,8 +329,7 @@ impl<T, B: Block> OnceCell<T, B> {
         }
 
         let mut func = Some(func);
-        let mut once = || func.take().unwrap()();
-        match self.try_init_inner(&mut once) {
+        match self.try_init_inner(&mut || func.take().unwrap()()) {
             Ok(inner) => inner,
             Err(TryBlockError::AlreadyInit) => unsafe { self.get_unchecked() },
             Err(TryBlockError::WouldBlock(_)) => {
