@@ -1,3 +1,15 @@
+pub mod helper {
+    use std::cell::Cell;
+
+    pub(crate) struct DropGuard<'a>(pub &'a Cell<u32>);
+
+    impl Drop for DropGuard<'_> {
+        fn drop(&mut self) {
+            self.0.set(self.0.get() + 1);
+        }
+    }
+}
+
 macro_rules! generate_tests {
     () => {
         use std::cell::Cell;
@@ -7,15 +19,9 @@ macro_rules! generate_tests {
         use std::sync::{Arc, Barrier, Mutex};
         use std::thread;
 
+        use crate::tests::helper::DropGuard;
+
         use super::{Lazy, OnceCell};
-
-        struct DropGuard<'a>(&'a Cell<u32>);
-
-        impl Drop for DropGuard<'_> {
-            fn drop(&mut self) {
-                self.0.set(self.0.get() + 1);
-            }
-        }
 
         static MUTEX: Lazy<Mutex<Vec<i32>>> = Lazy::new(Mutex::default);
 
@@ -56,6 +62,63 @@ macro_rules! generate_tests {
             .unwrap_err();
 
             assert!(Lazy::is_poisoned(&POISONED));
+        }
+
+        #[test]
+        fn once_cell_uninit() {
+            let cell: OnceCell<i32> = OnceCell::uninit();
+            assert!(!cell.is_initialized());
+            assert!(!cell.is_poisoned());
+            assert_eq!(cell.into_inner(), None);
+        }
+
+        #[test]
+        fn once_cell_init() {
+            let cell = OnceCell::new(1);
+            assert!(cell.is_initialized());
+            assert!(!cell.is_poisoned());
+            assert_eq!(cell.into_inner(), Some(1));
+        }
+
+        #[test]
+        fn once_cell_init_once() {
+            let cell = OnceCell::uninit();
+            cell.init_once(|| 1);
+
+            assert!(cell.is_initialized());
+            assert!(!cell.is_poisoned());
+            assert_eq!(cell.into_inner(), Some(1));
+        }
+
+        #[test]
+        fn once_cell_try_init_once() {
+            const WAITERS: usize = 8;
+
+            let barrier = Arc::new(Barrier::new(WAITERS + 1));
+            let cell = Arc::new(OnceCell::uninit());
+
+            let handles: Vec<_> = (0..WAITERS)
+                .map(|id| {
+                    let barrier = Arc::clone(&barrier);
+                    let cell = Arc::clone(&cell);
+                    thread::spawn(move || {
+                        barrier.wait();
+                        assert!(cell.try_init_once(|| id + 1).is_err());
+                    })
+                })
+                .collect();
+
+                let res = cell.try_init_once(|| {
+                    barrier.wait();
+                    0
+                });
+
+                assert!(res.is_ok());
+                assert_eq!(cell.try_get(), Ok(&0));
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
         }
 
         #[test]

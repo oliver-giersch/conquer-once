@@ -1,6 +1,6 @@
 # Releases
 
-## Release `0.3.0`
+## Release `0.2.0`
 
 - fixes internal soundness issues (similar to https://github.com/rust-lang/rust/pull/65719)
 - renames `OnceCell::new` to `OnceCell::uninit` and `OnceCell::initialized` to `OnceCell::new`

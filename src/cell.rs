@@ -84,7 +84,7 @@ impl<T, B> OnceCell<T, B> {
     /// ```
     #[inline]
     pub fn into_inner(self) -> Option<T> {
-        let res = unsafe { self.read_relaxed() };
+        let res = unsafe { self.read_relaxed(false) };
         mem::forget(self);
         res
     }
@@ -144,9 +144,10 @@ impl<T, B> OnceCell<T, B> {
     }
 
     #[inline]
-    unsafe fn read_relaxed(&self) -> Option<T> {
-        match self.state.load(Ordering::Relaxed).expect(POISON_PANIC_MSG) {
-            OnceState::Ready => Some(ptr::read(self.get_unchecked())),
+    unsafe fn read_relaxed(&self, ignore_panic: bool) -> Option<T> {
+        match self.state.load(Ordering::Relaxed) {
+            Err(_) if !ignore_panic => panic!(POISON_PANIC_MSG),
+            Ok(OnceState::Ready) => Some(ptr::read(self.get_unchecked())),
             _ => None,
         }
     }
@@ -276,14 +277,13 @@ impl<T, B: Block> OnceCell<T, B> {
     /// ```
     #[inline]
     pub fn get(&self) -> Option<&T> {
-        // (cell:2) this acquire load syncs-with the acq-rel swap (guard:2)
-        match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
-            OnceState::Ready => Some(unsafe { self.get_unchecked() }),
-            OnceState::WouldBlock(_) => {
+        match self.try_get() {
+            Ok(res) => Some(res),
+            Err(TryGetError::WouldBlock) => {
                 B::block(&self.state);
                 Some(unsafe { self.get_unchecked() })
-            }
-            OnceState::Uninit => None,
+            },
+            Err(TryGetError::Uninit) => None
         }
     }
 
@@ -304,7 +304,7 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn try_get(&self) -> Result<&T, TryGetError> {
-        // (cell:3) this acquire load syncs-with the acq-rel swap (guard:2)
+        // (cell:2) this acquire load syncs-with the acq-rel swap (guard:2)
         match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
             OnceState::Uninit => Err(TryGetError::Uninit),
@@ -323,16 +323,9 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn get_or_init(&self, func: impl FnOnce() -> T) -> &T {
-        // (cell:4) this acquire load syncs-with the acq-rel swap (guard:2)
-        if let OnceState::Ready = self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
-            return unsafe { self.get_unchecked() };
-        }
-
-        let mut func = Some(func);
-        match self.try_init_inner(&mut || func.take().unwrap()()) {
-            Ok(inner) => inner,
-            Err(TryBlockError::AlreadyInit) => unsafe { self.get_unchecked() },
-            Err(TryBlockError::WouldBlock(_)) => {
+        match self.try_get_or_init(func) {
+            Ok(res) => res,
+            Err(_) => {
                 B::block(&self.state);
                 unsafe { self.get_unchecked() }
             }
@@ -354,13 +347,15 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method panics if the [`OnceCell`] has been poisoned.
     #[inline]
     pub fn try_get_or_init(&self, func: impl FnOnce() -> T) -> Result<&T, WouldBlockError> {
-        if self.is_initialized() {
-            return Ok(unsafe { self.get_unchecked() });
+        match self.try_get() {
+            Ok(res) => Ok(res),
+            Err(TryGetError::WouldBlock) => Err(WouldBlockError(())),
+            Err(TryGetError::Uninit) => {
+                let mut func = Some(func);
+                let res = self.try_init_inner(&mut || func.take().unwrap()())?;
+                Ok(res)
+            }
         }
-
-        let mut func = Some(func);
-        let mut once = || func.take().unwrap()();
-        Ok(self.try_init_inner(&mut once)?)
     }
 
     /// This method is annotated with `#[cold]` in order to keep it out of the
@@ -393,7 +388,7 @@ impl<T: fmt::Debug, B: Block> fmt::Debug for OnceCell<T, B> {
 impl<T, B> Drop for OnceCell<T, B> {
     #[inline]
     fn drop(&mut self) {
-        unsafe { mem::drop(self.read_relaxed()) }
+        unsafe { mem::drop(self.read_relaxed(true)) }
     }
 }
 
@@ -547,7 +542,7 @@ impl<B: Block> Drop for PanicGuard<'_, B> {
     #[inline]
     fn drop(&mut self) {
         // (guard:2) this acq-rel swap syncs-with the acq-rel CAS (wait:2) and the acquire loads
-        // (cell:0) through (cell:3), (wait:1) and the acquire CAS (guard:1)
+        // (cell:1), (cell:2), (wait:1) and the acquire CAS (guard:1)
         let waiter_queue = if self.poison {
             self.state.swap_poisoned(Ordering::AcqRel)
         } else {
