@@ -73,11 +73,57 @@ macro_rules! generate_tests {
         }
 
         #[test]
-        fn once_cell_init() {
+        fn once_cell_new() {
             let cell = OnceCell::new(1);
             assert!(cell.is_initialized());
             assert!(!cell.is_poisoned());
             assert_eq!(cell.into_inner(), Some(1));
+        }
+
+        #[test]
+        fn once_cell_into_inner() {
+            let count = Cell::new(0);
+
+            let cell = OnceCell::uninit();
+            cell.init_once(|| DropGuard(&count));
+
+            let inner = cell.into_inner().unwrap();
+            drop(inner);
+            assert_eq!(count.get(), 1);
+        }
+
+        #[test]
+        fn once_cell_drop() {
+            let count = Cell::new(0);
+
+            let cell = OnceCell::uninit();
+            cell.init_once(|| DropGuard(&count));
+
+            drop(cell);
+            assert_eq!(count.get(), 1);
+        }
+
+        #[test]
+        #[should_panic]
+        fn once_cell_into_inner_poisoned() {
+            let cell = Arc::new(OnceCell::uninit());
+
+            let thread_cell = Arc::clone(&cell);
+            thread::spawn(move || thread_cell.init_once(|| panic!("explicit panic")))
+                .join()
+                .unwrap_err();
+
+            let cell = Arc::try_unwrap(cell).unwrap();
+            assert!(cell.is_poisoned());
+            cell.into_inner();
+        }
+
+        #[test]
+        #[should_panic]
+        fn drop_on_panic() {
+            let cell = OnceCell::uninit();
+            // must not panic again when cell is dropped
+            cell.init_once(|| panic!("explicit panic"));
         }
 
         #[test]
@@ -154,8 +200,8 @@ macro_rules! generate_tests {
             }
         }
 
-        #[should_panic]
         #[test]
+        #[should_panic]
         fn once_cell_propagate_poison_from_block() {
             const WAITERS: usize = 4;
 
@@ -186,29 +232,6 @@ macro_rules! generate_tests {
             }
 
             panic::resume_unwind(panic);
-        }
-
-        #[test]
-        fn once_cell_into_inner() {
-            let count = Cell::new(0);
-
-            let cell = OnceCell::uninit();
-            cell.init_once(|| DropGuard(&count));
-
-            let inner = cell.into_inner().unwrap();
-            drop(inner);
-            assert_eq!(count.get(), 1);
-        }
-
-        #[test]
-        fn once_cell_drop() {
-            let count = Cell::new(0);
-
-            let cell = OnceCell::uninit();
-            cell.init_once(|| DropGuard(&count));
-
-            drop(cell);
-            assert_eq!(count.get(), 1);
         }
     };
 }

@@ -258,6 +258,7 @@ impl<T, B: Block> OnceCell<T, B> {
     ///
     /// This method **blocks** if another thread has already begun initializing
     /// the [`OnceCell`] concurrently.
+    /// See [`try_get`][OnceCell::try_get] for a non-blocking alternative.
     ///
     /// # Panics
     ///
@@ -317,6 +318,8 @@ impl<T, B: Block> OnceCell<T, B> {
     ///
     /// This method **blocks** if another thread has already begun
     /// initializing the [`OnceCell`] concurrently.
+    /// See [`try_get_or_init`][OnceCell::try_get_or_init] for a non-blocking
+    /// alternative.
     ///
     /// # Panics
     ///

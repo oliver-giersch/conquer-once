@@ -1,4 +1,5 @@
 use core::convert::{TryFrom, TryInto};
+use core::marker::PhantomData;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::POISON_PANIC_MSG;
@@ -15,19 +16,19 @@ const POISONED: usize = 3;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
-pub struct AtomicOnceState(AtomicUsize);
+pub struct AtomicOnceState(AtomicUsize, PhantomData<*const ()>);
 
 /********** impl inherent *************************************************************************/
 
 impl AtomicOnceState {
     #[inline]
     pub const fn new() -> Self {
-        Self(AtomicUsize::new(UNINIT))
+        Self(AtomicUsize::new(UNINIT), PhantomData)
     }
 
     #[inline]
     pub const fn ready() -> Self {
-        Self(AtomicUsize::new(READY))
+        Self(AtomicUsize::new(READY), PhantomData)
     }
 
     #[inline]
