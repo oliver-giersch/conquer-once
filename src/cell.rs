@@ -283,8 +283,8 @@ impl<T, B: Block> OnceCell<T, B> {
             Err(TryGetError::WouldBlock) => {
                 B::block(&self.state);
                 Some(unsafe { self.get_unchecked() })
-            },
-            Err(TryGetError::Uninit) => None
+            }
+            Err(TryGetError::Uninit) => None,
         }
     }
 

@@ -154,13 +154,13 @@ macro_rules! generate_tests {
                 })
                 .collect();
 
-                let res = cell.try_init_once(|| {
-                    barrier.wait();
-                    0
-                });
+            let res = cell.try_init_once(|| {
+                barrier.wait();
+                0
+            });
 
-                assert!(res.is_ok());
-                assert_eq!(cell.try_get(), Ok(&0));
+            assert!(res.is_ok());
+            assert_eq!(cell.try_get(), Ok(&0));
 
             for handle in handles {
                 handle.join().unwrap();
