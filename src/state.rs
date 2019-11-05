@@ -22,22 +22,22 @@ pub struct AtomicOnceState(AtomicUsize, PhantomData<*const ()>);
 
 impl AtomicOnceState {
     #[inline]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self(AtomicUsize::new(UNINIT), PhantomData)
     }
 
     #[inline]
-    pub const fn ready() -> Self {
+    pub(crate) const fn ready() -> Self {
         Self(AtomicUsize::new(READY), PhantomData)
     }
 
     #[inline]
-    pub fn load(&self, order: Ordering) -> Result<OnceState, PoisonError> {
+    pub(crate) fn load(&self, order: Ordering) -> Result<OnceState, PoisonError> {
         self.0.load(order).try_into()
     }
 
     #[inline]
-    pub fn try_swap_waiters(
+    pub(crate) fn try_swap_waiters(
         &self,
         current: WaiterQueue,
         new: WaiterQueue,
@@ -50,7 +50,7 @@ impl AtomicOnceState {
     }
 
     #[inline]
-    pub fn try_block(&self, order: Ordering) -> Result<(), TryBlockError> {
+    pub(crate) fn try_block(&self, order: Ordering) -> Result<(), TryBlockError> {
         let prev = self.0.compare_and_swap(UNINIT, WOULD_BLOCK, order);
         match prev.try_into().expect(POISON_PANIC_MSG) {
             Uninit => Ok(()),
@@ -60,13 +60,18 @@ impl AtomicOnceState {
     }
 
     #[inline]
-    pub fn swap_ready(&self, order: Ordering) -> WaiterQueue {
+    pub(crate) fn swap_ready(&self, order: Ordering) -> WaiterQueue {
         WaiterQueue::from(self.0.swap(READY, order))
     }
 
     #[inline]
-    pub fn swap_poisoned(&self, order: Ordering) -> WaiterQueue {
+    pub(crate) fn swap_poisoned(&self, order: Ordering) -> WaiterQueue {
         WaiterQueue::from(self.0.swap(POISONED, order))
+    }
+
+    #[inline]
+    pub(crate) fn swap_uninit(&self, order: Ordering) -> Result<OnceState, PoisonError> {
+        self.0.swap(UNINIT, order).try_into()
     }
 }
 

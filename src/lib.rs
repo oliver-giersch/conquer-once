@@ -69,6 +69,8 @@ use crate::internal::Internal;
 #[cfg(feature = "std")]
 use crate::with_std::ParkThread;
 
+/// Whenever a poisoned [`OnceCell`] is encountered, the panic is propagated
+/// with this message.
 const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 
 #[cfg(feature = "std")]

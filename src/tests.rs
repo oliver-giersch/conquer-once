@@ -23,45 +23,14 @@ macro_rules! generate_tests {
 
         use super::{Lazy, OnceCell};
 
-        static MUTEX: Lazy<Mutex<Vec<i32>>> = Lazy::new(Mutex::default);
-
-        static MAP: Lazy<HashMap<&str, &str>> = Lazy::new(|| {
-            let mut map = HashMap::new();
-            map.insert("A", "Hello");
-            map.insert("B", "World");
-            map
-        });
+        const WAITERS: usize = 8;
 
         #[test]
-        fn lazy_mutex() {
-            let mut lock = MUTEX.lock().unwrap();
-
-            lock.push(1);
-            lock.push(2);
-            lock.push(3);
-
-            assert_eq!(lock.as_slice(), &[1, 2, 3]);
-            lock.clear();
-        }
-
-        #[test]
-        fn lazy() {
-            assert_eq!(MAP.get(&"A"), Some(&"Hello"));
-            assert_eq!(MAP.get(&"B"), Some(&"World"));
-        }
-
-        #[test]
-        fn lazy_poisoned() {
-            static POISONED: Lazy<HashMap<&str, &str>> =
-                Lazy::new(|| panic!("explicit init panic"));
-
-            thread::spawn(|| {
-                let _map = &*POISONED;
-            })
-            .join()
-            .unwrap_err();
-
-            assert!(Lazy::is_poisoned(&POISONED));
+        #[should_panic]
+        fn drop_on_panic() {
+            let cell = OnceCell::uninit();
+            // must not panic again when cell is dropped
+            cell.init_once(|| panic!("explicit panic"));
         }
 
         #[test]
@@ -119,27 +88,7 @@ macro_rules! generate_tests {
         }
 
         #[test]
-        #[should_panic]
-        fn drop_on_panic() {
-            let cell = OnceCell::uninit();
-            // must not panic again when cell is dropped
-            cell.init_once(|| panic!("explicit panic"));
-        }
-
-        #[test]
-        fn once_cell_init_once() {
-            let cell = OnceCell::uninit();
-            cell.init_once(|| 1);
-
-            assert!(cell.is_initialized());
-            assert!(!cell.is_poisoned());
-            assert_eq!(cell.into_inner(), Some(1));
-        }
-
-        #[test]
         fn once_cell_try_init_once() {
-            const WAITERS: usize = 8;
-
             let barrier = Arc::new(Barrier::new(WAITERS + 1));
             let cell = Arc::new(OnceCell::uninit());
 
@@ -168,9 +117,17 @@ macro_rules! generate_tests {
         }
 
         #[test]
-        fn once_cell_block() {
-            const WAITERS: usize = 4;
+        fn once_cell_init_once() {
+            let cell = OnceCell::uninit();
+            cell.init_once(|| 1);
 
+            assert!(cell.is_initialized());
+            assert!(!cell.is_poisoned());
+            assert_eq!(cell.into_inner(), Some(1));
+        }
+
+        #[test]
+        fn once_cell_block() {
             let barrier = Arc::new(Barrier::new(WAITERS + 1));
             let cell = Arc::new(OnceCell::uninit());
 
@@ -203,8 +160,6 @@ macro_rules! generate_tests {
         #[test]
         #[should_panic]
         fn once_cell_propagate_poison_from_block() {
-            const WAITERS: usize = 4;
-
             let barrier = Arc::new(Barrier::new(WAITERS + 1));
             let cell = Arc::new(OnceCell::uninit());
 
@@ -232,6 +187,47 @@ macro_rules! generate_tests {
             }
 
             panic::resume_unwind(panic);
+        }
+
+        #[test]
+        fn lazy_mutex() {
+            static MUTEX: Lazy<Mutex<Vec<i32>>> = Lazy::new(Mutex::default);
+
+            let mut lock = MUTEX.lock().unwrap();
+
+            lock.push(1);
+            lock.push(2);
+            lock.push(3);
+
+            assert_eq!(lock.as_slice(), &[1, 2, 3]);
+            lock.clear();
+        }
+
+        #[test]
+        fn lazy() {
+            static MAP: Lazy<HashMap<&str, &str>> = Lazy::new(|| {
+                let mut map = HashMap::new();
+                map.insert("A", "Hello");
+                map.insert("B", "World");
+                map
+            });
+
+            assert_eq!(MAP.get(&"A"), Some(&"Hello"));
+            assert_eq!(MAP.get(&"B"), Some(&"World"));
+        }
+
+        #[test]
+        fn lazy_poisoned() {
+            static POISONED: Lazy<HashMap<&str, &str>> =
+                Lazy::new(|| panic!("explicit init panic"));
+
+            thread::spawn(|| {
+                let _map = &*POISONED;
+            })
+            .join()
+            .unwrap_err();
+
+            assert!(Lazy::is_poisoned(&POISONED));
         }
     };
 }
