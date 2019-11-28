@@ -96,31 +96,6 @@ impl<T, B> OnceCell<T, B> {
         res
     }
 
-    /// Takes the [`OnceCell`]'s value out and resets it to an uninitialized
-    /// state, if it had previously been initialized.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the [`OnceCell`] has been poisoned.
-    #[inline]
-    pub fn take(&mut self) -> Option<T> {
-        self.take_inner(false)
-    }
-
-    /// Returns a mutable reference to the [`OnceCell`]'s value if it has
-    /// previously been initialized.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the [`OnceCell`] has been poisoned.
-    #[inline]
-    pub fn get_mut(&mut self) -> Option<&mut T> {
-        match self.state.load(Ordering::Relaxed).expect(POISON_PANIC_MSG) {
-            OnceState::Ready => Some(unsafe { self.get_mut_unchecked() }),
-            _ => None,
-        }
-    }
-
     /// Returns true if the [`OnceCell`] has been successfully initialized.
     ///
     /// This method does not panic if the [`OnceCell`] is poisoned and
@@ -136,6 +111,10 @@ impl<T, B> OnceCell<T, B> {
     ///
     /// This method does not panic if the [`OnceCell`] is poisoned and
     /// never blocks.
+    /// Once this method has returned `true` all other means of accessing the
+    /// [`OnceCell`] except for further calls to
+    /// [`is_initialized`][OnceCell::is_initialized] or
+    /// [`is_poisoned`][OnceCell::is_poisoned] will lead to a panic
     #[inline]
     pub fn is_poisoned(&self) -> bool {
         self.state.load(Ordering::Relaxed).is_err()
@@ -175,43 +154,9 @@ impl<T, B> OnceCell<T, B> {
         &*inner.as_ptr()
     }
 
-    /// Returns a mutable reference to the inner value without checking whether
-    /// the [`OnceCell`] is actually initialized.
-    ///
-    /// # Safety
-    ///
-    /// The caller has to ensure that the cell has been successfully
-    /// initialized, otherwise uninitialized memory will be read.
-    ///
-    /// # Examples
-    ///
-    /// This is one safe way to use this method, although
-    /// [`get_mut`][OnceCell::get_mut] is the better alternative:
-    ///
-    /// ```
-    /// use conquer_once::OnceCell;
-    ///
-    /// // let cell = ...
-    /// # let mut cell = OnceCell::uninit();
-    /// # cell.init_once(|| 0);
-    ///
-    /// let res = if cell.is_initialized() {
-    ///     Some(unsafe { cell.get_mut_unchecked() })
-    /// } else {
-    ///     None
-    /// };
-    ///
-    /// # assert_eq!(res, Some(&mut 0));
-    /// ```
-    #[inline]
-    pub unsafe fn get_mut_unchecked(&mut self) -> &mut T {
-        let inner = &mut *self.inner.get();
-        &mut *inner.as_mut_ptr()
-    }
-
     #[inline]
     fn take_inner(&mut self, ignore_panic: bool) -> Option<T> {
-        match self.state.swap_uninit(Ordering::Relaxed) {
+        match self.state.load(Ordering::Relaxed) {
             Err(_) if !ignore_panic => panic!(POISON_PANIC_MSG),
             Ok(OnceState::Ready) => Some(unsafe { ptr::read(self.get_unchecked()) }),
             _ => None,

@@ -18,5 +18,5 @@ std = []
 
 [dependencies.conquer-util]
 version = "0.2.0"
-no-default-features = true
+default-features = false
 features = ["back-off"]

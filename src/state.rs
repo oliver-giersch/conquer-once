@@ -68,11 +68,6 @@ impl AtomicOnceState {
     pub(crate) fn swap_poisoned(&self, order: Ordering) -> WaiterQueue {
         WaiterQueue::from(self.0.swap(POISONED, order))
     }
-
-    #[inline]
-    pub(crate) fn swap_uninit(&self, order: Ordering) -> Result<OnceState, PoisonError> {
-        self.0.swap(UNINIT, order).try_into()
-    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
