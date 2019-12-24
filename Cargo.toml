@@ -1,13 +1,13 @@
 [package]
 name = "conquer-once"
-description = "synchronization primitives for lazy and one-time initialization"
+description = "Synchronization primitives for lazy and one-time initialization"
 version = "0.2.0"
 authors = ["Oliver Giersch"]
 license = "MIT/Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/oliver-giersch/conquer-once.git"
 documentation = "https://docs.rs/conquer-once"
-keywords = ["lazy", "once", "synchronization", "initialization"]
+keywords = ["lazy initialization", "one-time", "multi-threading", "initialization"]
 categories = ["concurrency", "no-std", "memory-management"]
 edition = "2018"
 exclude = [".travis.yml"]
