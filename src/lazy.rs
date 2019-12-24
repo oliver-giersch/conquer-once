@@ -16,7 +16,11 @@ use crate::cell::{Block, OnceCell};
 /// A type for lazy initialization of e.g. global static variables, which
 /// provides the same functionality as the `lazy_static!` macro.
 pub struct Lazy<T, B, F = fn() -> T> {
+    /// The cell storing the lazily initialized value.
     cell: OnceCell<T, B>,
+    /// The initialization function or closure; 
+    /// this is wrapped in a [`ManuallyDrop`] so that [`FnOnce`] closures can
+    /// be used as well.
     init: ManuallyDrop<F>,
 }
 

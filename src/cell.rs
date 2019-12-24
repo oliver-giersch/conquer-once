@@ -37,8 +37,11 @@ pub trait Block: Default + Internal {
 /// All subsequent accesses to a poisoned cell will propagate this and panic
 /// themselves.
 pub struct OnceCell<T, B> {
+    /// The current initialization status.
     state: AtomicOnceState,
+    /// The internal and potentially uninitialized value.
     inner: UnsafeCell<MaybeUninit<T>>,
+    /// A marker for the blocking strategy (i.e. OS-level block or spin-lock)
     _marker: PhantomData<B>,
 }
 
@@ -154,8 +157,16 @@ impl<T, B> OnceCell<T, B> {
         &*inner.as_ptr()
     }
 
+    /// Moves the inner cell value out of the [`OnceCell`] and returns it
+    /// wrapped in [`Some`], if it has been successfully initialized.
+    ///
+    /// # Panics
+    ///
+    /// If `ignore_panic` is `false`, this method will panic if the [`OnceCell`]
+    /// has been poisoned, otherwise it will simply return [`None`].
     #[inline]
     fn take_inner(&mut self, ignore_panic: bool) -> Option<T> {
+        #[allow(clippy::match_wild_err_arm)]
         match self.state.load(Ordering::Relaxed) {
             Err(_) if !ignore_panic => panic!(POISON_PANIC_MSG),
             Ok(OnceState::Ready) => Some(unsafe { ptr::read(self.get_unchecked()) }),
@@ -363,6 +374,8 @@ impl<T, B: Block> OnceCell<T, B> {
             Ok(res) => res,
             Err(_) => {
                 B::block(&self.state);
+                // `block` only returns when the state is set to initialized and
+                // acts as an acquire barrier
                 unsafe { self.get_unchecked() }
             }
         }
@@ -373,6 +386,8 @@ impl<T, B: Block> OnceCell<T, B> {
     #[inline(never)]
     #[cold]
     fn try_init_inner(&self, func: &mut dyn FnMut() -> T) -> Result<&T, TryBlockError> {
+        // sets the state to blocked (i.e. guarantees mutual exclusion) or
+        // returns with an error.
         let guard = PanicGuard::<B>::try_block(&self.state)?;
         unsafe {
             let inner = &mut *self.inner.get();
@@ -524,8 +539,12 @@ impl std::error::Error for WouldBlockError {}
 /// closure.
 #[derive(Debug)]
 struct PanicGuard<'a, B: Block> {
+    /// The state of the associated [`OnceCell`].
     state: &'a AtomicOnceState,
+    /// Flag for indicating if a panic has occurred during the caller supplied
+    /// arbitrary closure.
     poison: bool,
+    /// A marker for the [`OnceCell`]'s blocking strategy.
     _marker: PhantomData<B>,
 }
 

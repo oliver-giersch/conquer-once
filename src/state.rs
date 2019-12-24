@@ -15,27 +15,38 @@ const POISONED: usize = 3;
 // AtomicState
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// The concurrently and atomically mutable internal state of a [`OnceCell`].
+///
+/// A `WOULD_BLOCK` value is also interpreted as a `null` pointer to an empty
+/// [`WaiterQueue`] indicating that there is only a single blocked thread.
 #[derive(Debug)]
 pub struct AtomicOnceState(AtomicUsize, PhantomData<*const ()>);
 
 /********** impl inherent *************************************************************************/
 
 impl AtomicOnceState {
+    /// Creates a new `UNINIT` state.
     #[inline]
     pub(crate) const fn new() -> Self {
         Self(AtomicUsize::new(UNINIT), PhantomData)
     }
 
+    /// Creates a new `READY` state.
     #[inline]
     pub(crate) const fn ready() -> Self {
         Self(AtomicUsize::new(READY), PhantomData)
     }
 
+    /// Loads the current state using `ordering`.
+    ///
+    /// A Poisoning of the state is returned as a [`PoisonError`].
     #[inline]
     pub(crate) fn load(&self, order: Ordering) -> Result<OnceState, PoisonError> {
         self.0.load(order).try_into()
     }
 
+    /// Attempts to compare-and-swap the head of the `current` [`WaiterQueue]`
+    /// with the `next` queue.
     #[inline]
     pub(crate) fn try_swap_waiters(
         &self,
@@ -49,6 +60,8 @@ impl AtomicOnceState {
         }
     }
 
+    /// Attempts to set the state to blocked and fails if the state is either
+    /// already initialized or blocked.
     #[inline]
     pub(crate) fn try_block(&self, order: Ordering) -> Result<(), TryBlockError> {
         let prev = self.0.compare_and_swap(UNINIT, WOULD_BLOCK, order);
@@ -59,11 +72,15 @@ impl AtomicOnceState {
         }
     }
 
+    /// Unconditionally swaps the current blocked state to `READY` and returns
+    /// the queue of waiting threads.
     #[inline]
     pub(crate) fn swap_ready(&self, order: Ordering) -> WaiterQueue {
         WaiterQueue::from(self.0.swap(READY, order))
     }
 
+    /// Unconditionally swaps the current blocked state to `POISONED` and
+    /// returns the queue of waiting threads.
     #[inline]
     pub(crate) fn swap_poisoned(&self, order: Ordering) -> WaiterQueue {
         WaiterQueue::from(self.0.swap(POISONED, order))
@@ -76,8 +93,11 @@ impl AtomicOnceState {
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum OnceState {
+    /// Initial (uninitialized) state.
     Uninit,
+    /// Ready (initialized) state.
     Ready,
+    /// Blocked state with queue of waiting threads.
     WouldBlock(WaiterQueue),
 }
 
@@ -111,13 +131,16 @@ pub enum TryBlockError {
 // PoisonError
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// An error type indicating a `OnceCell` has been poisoned.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct PoisonError;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Waiter
+// WaiterQueue
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/// When using the OS reliant blocking strategy, the state encodes a pointer
+/// to the first blocked thread, which forms a linked list of waiting threads.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct WaiterQueue {
     pub(crate) head: *const (),

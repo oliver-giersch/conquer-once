@@ -43,7 +43,7 @@ pub type Once = OnceCell<()>;
 // Spin
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Thread blocking strategy using spin-locks.
+/// Thread blocking (locking) strategy using spin-locks.
 #[derive(Copy, Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Spin;
 
@@ -54,6 +54,8 @@ impl Internal for Spin {}
 /********** impl Block ****************************************************************************/
 
 impl Block for Spin {
+    /// Spins until the [`OnceCell`] state is set to `READY` or panics if it
+    /// becomes poisoned.
     #[inline]
     fn block(state: &AtomicOnceState) {
         // (spin:1) this acquire load syncs-with the acq-rel swap (guard:2)
@@ -62,6 +64,7 @@ impl Block for Spin {
         }
     }
 
+    /// No-op since all waiters stop spinning on their own.
     #[inline]
     fn unblock(_: WaiterQueue) {}
 }
