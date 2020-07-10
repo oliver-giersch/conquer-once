@@ -21,7 +21,7 @@ To use this crate, add the following to your `Cargo.toml`
 
 ```
 [dependencies]
-conquer-once = "0.2.0"
+conquer-once = "0.2.1"
 ```
 
 ## Minimum Supported Rust Version (MSRV)

@@ -11,3 +11,7 @@
 - improved internal code structure and code re-usage, better facilitates
   monomorphic code usage
 
+## Release `0.2.1`
+
+- updates docs to explicitly specify the concrete synchronization guarantees
+
