@@ -40,7 +40,7 @@ The feature can be disabled by specifying the dependency as follows:
 
 ``` 
 [dependencies.conquer-once]
-version = "0.2.0"
+version = "0.2.1"
 use-default-features = false
 ```
 
