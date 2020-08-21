@@ -20,6 +20,7 @@ macro_rules! generate_tests {
         use std::thread;
 
         use crate::tests::helper::DropGuard;
+        use crate::TryInitError;
 
         use super::{Lazy, OnceCell};
 
@@ -229,6 +230,22 @@ macro_rules! generate_tests {
 
             assert!(Lazy::is_poisoned(&POISONED));
         }
+
+        #[test]
+        fn recursive() {
+            let cell = OnceCell::uninit();
+            cell.init_once(|| {
+                let res = cell.try_init_once(|| 1);
+                assert!(matches!(res, Err(TryInitError::WouldBlock)));
+                1
+            });
+
+            assert_eq!(cell.get(), Some(&1));
+        }
+    };
+}
+
+generate_tests!();
 
         #[test]
         fn catch_panic() {

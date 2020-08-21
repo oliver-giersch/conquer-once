@@ -184,6 +184,13 @@ impl<T, B: Block> OnceCell<T, B> {
     ///
     /// This method never blocks.
     ///
+    /// When this function returns with an [`Ok`] result, it is guaranteed that
+    /// some initialization closure has run and completed.
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
+    ///
     /// # Errors
     ///
     /// This method fails if the [`OnceCell`] is either not initialized
@@ -210,6 +217,13 @@ impl<T, B: Block> OnceCell<T, B> {
     /// This method **blocks** if another thread has already begun initializing
     /// the [`OnceCell`] concurrently.
     /// See [`try_get`][OnceCell::try_get] for a non-blocking alternative.
+    ///
+    /// When this function returns with [`Some`], it is guaranteed that some
+    /// initialization closure has run and completed.
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
     ///
     /// # Panics
     ///
@@ -247,6 +261,15 @@ impl<T, B: Block> OnceCell<T, B> {
     /// executed.
     ///
     /// This method never blocks.
+    ///
+    /// When this function returns with an [`Ok`] or
+    /// [`AlreadyInit`][TryInitError::AlreadyInit] result, it is guaranteed that
+    /// some initialization closure has run and completed (it may not be the
+    /// closure specified).
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
     ///
     /// # Errors
     ///
@@ -307,7 +330,14 @@ impl<T, B: Block> OnceCell<T, B> {
     ///
     /// If the initialization of the [`OnceCell`] has already been
     /// completed previously, this method returns early with minimal
-    /// overhead (approximately 0.5ns in some benchmarks).
+    /// overhead.
+    ///
+    /// When this function returns, it is guaranteed that some initialization
+    /// closure has run and completed (it may not be the closure specified).
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
     ///
     /// # Panics
     ///
@@ -348,6 +378,14 @@ impl<T, B: Block> OnceCell<T, B> {
     ///
     /// This method never blocks.
     ///
+    /// When this function returns with an [`Ok`] result, it is guaranteed that
+    /// some initialization closure has run and completed (it may not be the
+    /// closure specified).
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
+    ///
     /// # Errors
     ///
     /// This method only fails if the calling thread would have to block in case
@@ -376,6 +414,13 @@ impl<T, B: Block> OnceCell<T, B> {
     /// initializing the [`OnceCell`] concurrently.
     /// See [`try_get_or_init`][OnceCell::try_get_or_init] for a non-blocking
     /// alternative.
+    ///
+    /// When this function returns, it is guaranteed that some initialization
+    /// closure has run and completed (it may not be the closure specified).
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
     ///
     /// # Panics
     ///
