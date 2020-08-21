@@ -7,5 +7,5 @@ rust:
   - beta
 
 script:
-  - cargo build --verbose
+  - cargo test --no-default-features --verbose
   - cargo test --verbose

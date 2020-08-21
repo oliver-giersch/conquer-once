@@ -18,7 +18,7 @@ use crate::cell::{Block, OnceCell};
 pub struct Lazy<T, B, F = fn() -> T> {
     /// The cell storing the lazily initialized value.
     cell: OnceCell<T, B>,
-    /// The initialization function or closure; 
+    /// The initialization function or closure;
     /// this is wrapped in a [`ManuallyDrop`] so that [`FnOnce`] closures can
     /// be used as well.
     init: ManuallyDrop<F>,
@@ -35,7 +35,10 @@ impl<T, B, F> Lazy<T, B, F> {
     /// closure.
     ///
     /// ```
+    /// # #[cfg(feature = "std")]
     /// use conquer_once::Lazy;
+    /// # #[cfg(not(feature = "std"))]
+    /// # use conquer_once::spin::Lazy;
     ///
     /// static LAZY_1: Lazy<Vec<i32>> = Lazy::new(|| vec![1, 2, 3, 4, 5]);
     /// static LAZY_2: Lazy<Vec<i32>> = Lazy::new(Vec::<i32>::new);

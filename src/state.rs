@@ -45,6 +45,7 @@ impl AtomicOnceState {
         self.0.load(order).try_into()
     }
 
+    #[cfg(any(test, feature = "std"))]
     /// Attempts to compare-and-swap the head of the `current` [`WaiterQueue]`
     /// with the `next` queue.
     #[inline]

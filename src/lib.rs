@@ -39,7 +39,7 @@
 //! The reasoning behind re-implementing [`Once`] is the fairly restricted and
 //! partly unstable API of the version in the standard library.
 
-#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
+#![cfg_attr(all(not(test), not(doctest), not(feature = "std")), no_std)]
 #![deny(missing_docs)]
 
 #[cfg(test)]
@@ -56,7 +56,8 @@ pub mod raw {
 mod cell;
 mod lazy;
 mod state;
-#[cfg(feature = "std")]
+
+#[cfg(any(test, doctest, feature = "std"))]
 mod with_std;
 
 mod internal {
@@ -66,14 +67,14 @@ mod internal {
 pub use crate::cell::{TryGetError, TryInitError};
 
 use crate::internal::Internal;
-#[cfg(feature = "std")]
+#[cfg(any(test, doctest, feature = "std"))]
 use crate::with_std::ParkThread;
 
 /// Whenever a poisoned [`OnceCell`] is encountered, the panic is propagated
 /// with this message.
 const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 
-#[cfg(feature = "std")]
+#[cfg(any(test, doctest, feature = "std"))]
 /// A type for lazy initialization of e.g. global static variables, which
 /// provides the same functionality as the `lazy_static!` macro.
 ///
@@ -85,7 +86,10 @@ const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 /// ```
 /// use std::sync::Mutex;
 ///
+/// # #[cfg(feature = "std")]
 /// use conquer_once::Lazy;
+/// # #[cfg(not(feature = "std"))]
+/// # use conquer_once::spin::Lazy;
 ///
 /// static MUTEX: Lazy<Mutex<Vec<i32>>> = Lazy::new(Mutex::default);
 ///
@@ -104,7 +108,10 @@ const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 /// ```
 /// use std::collections::HashMap;
 ///
+/// # #[cfg(feature = "std")]
 /// use conquer_once::Lazy;
+/// # #[cfg(not(feature = "std"))]
+/// # use conquer_once::spin::Lazy;
 ///
 /// static CAPITALS: Lazy<HashMap<&str, &str>> = Lazy::new(|| {
 ///     let mut map = HashMap::new();
@@ -120,7 +127,7 @@ const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
 /// ```
 pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 
-#[cfg(feature = "std")]
+#[cfg(any(test, doctest, feature = "std"))]
 /// An interior mutability cell type which allows synchronized one-time
 /// initialization and read-only access exclusively after initialization.
 ///
@@ -130,7 +137,10 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 /// # Examples
 ///
 /// ```
+/// # #[cfg(feature = "std")]
 /// use conquer_once::OnceCell;
+/// # #[cfg(not(feature = "std"))]
+/// # use conquer_once::spin::OnceCell;
 ///
 /// #[derive(Copy, Clone)]
 /// struct Configuration {
@@ -157,7 +167,7 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 /// ```
 pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 
-#[cfg(feature = "std")]
+#[cfg(any(test, doctest, feature = "std"))]
 /// A synchronization primitive which can be used to run a one-time global
 /// initialization.
 ///
@@ -168,7 +178,10 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 /// # Examples
 ///
 /// ```
+/// # #[cfg(feature = "std")]
 /// use conquer_once::Once;
+/// # #[cfg(not(feature = "std"))]
+/// # use conquer_once::spin::Once;
 ///
 /// static mut GLOBAL: usize = 0;
 /// static INIT: Once = Once::uninit();

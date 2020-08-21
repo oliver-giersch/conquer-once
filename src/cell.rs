@@ -137,7 +137,10 @@ impl<T, B> OnceCell<T, B> {
     /// [`try_get`][OnceCell::try_get] is the better alternative:
     ///
     /// ```
+    /// # #[cfg(feature = "std")]
     /// use conquer_once::OnceCell;
+    /// # #[cfg(not(feature = "std"))]
+    /// # use conquer_once::spin::OnceCell;
     ///
     /// // let cell = ...
     /// # let cell = OnceCell::uninit();
@@ -215,7 +218,10 @@ impl<T, B: Block> OnceCell<T, B> {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")]
     /// use conquer_once::OnceCell;
+    /// # #[cfg(not(feature = "std"))]
+    /// # use conquer_once::spin::OnceCell;
     ///
     /// let cell = OnceCell::uninit();
     /// assert_eq!(cell.get(), None);
@@ -258,7 +264,10 @@ impl<T, B: Block> OnceCell<T, B> {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")]
     /// use conquer_once::{OnceCell, TryInitError};
+    /// # #[cfg(not(feature = "std"))]
+    /// # use conquer_once::{spin::OnceCell, TryInitError};
     ///
     /// let cell = OnceCell::uninit();
     ///
@@ -307,7 +316,10 @@ impl<T, B: Block> OnceCell<T, B> {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")]
     /// use conquer_once::OnceCell;
+    /// # #[cfg(not(feature = "std"))]
+    /// # use conquer_once::spin::OnceCell;
     ///
     /// let cell = OnceCell::uninit();
     /// cell.init_once(|| {
