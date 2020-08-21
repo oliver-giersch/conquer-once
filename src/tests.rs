@@ -236,7 +236,7 @@ macro_rules! generate_tests {
             let cell = OnceCell::uninit();
             cell.init_once(|| {
                 let res = cell.try_init_once(|| 1);
-                assert!(matches!(res, Err(TryInitError::WouldBlock)));
+                assert_eq!(res, Err(TryInitError::WouldBlock));
                 1
             });
 
