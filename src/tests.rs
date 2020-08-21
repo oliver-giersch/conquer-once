@@ -242,10 +242,6 @@ macro_rules! generate_tests {
 
             assert_eq!(cell.get(), Some(&1));
         }
-    };
-}
-
-generate_tests!();
 
         #[test]
         fn catch_panic() {
