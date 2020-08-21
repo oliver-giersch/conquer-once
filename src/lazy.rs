@@ -7,7 +7,7 @@ use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::ptr;
 
-use crate::cell::{Block, OnceCell};
+use crate::cell::{Block, OnceCell, Unblock};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Lazy
@@ -47,13 +47,7 @@ impl<T, B, F> Lazy<T, B, F> {
     pub const fn new(init: F) -> Self {
         Self { cell: OnceCell::uninit(), init: ManuallyDrop::new(init) }
     }
-}
 
-impl<T, B, F> Lazy<T, B, F>
-where
-    B: Block,
-    F: FnOnce() -> T,
-{
     /// Returns `true` if the [`Lazy`] has been successfully initialized.
     #[inline]
     pub fn is_initialized(lazy: &Self) -> bool {
@@ -65,7 +59,13 @@ where
     pub fn is_poisoned(lazy: &Self) -> bool {
         lazy.cell.is_poisoned()
     }
+}
 
+impl<T, B, F> Lazy<T, B, F>
+where
+    B: Block,
+    F: FnOnce() -> T,
+{
     /// Returns a reference to the already initialized inner value or
     /// initializes it first.
     ///
@@ -115,7 +115,7 @@ where
 impl<T, B, F> fmt::Debug for Lazy<T, B, F>
 where
     T: fmt::Debug,
-    B: Block,
+    B: Unblock,
     F: FnOnce() -> T,
 {
     #[inline]

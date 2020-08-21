@@ -10,21 +10,165 @@ pub mod helper {
     }
 }
 
+macro_rules! generate_tests_non_blocking {
+    () => {
+        use std::sync::{Arc, Barrier, RwLock};
+        use std::time::Duration;
+        use std::thread;
+
+        use crate::{TryInitError, TryGetError};
+
+        use super::OnceCell;
+
+        const THREADS: usize = 8;
+
+        #[test]
+        fn once_cell_uninit() {
+            static CELL: OnceCell<usize> = OnceCell::uninit();
+            assert!(!CELL.is_initialized());
+            assert!(!CELL.is_poisoned());
+
+            let cell: OnceCell<i32> = OnceCell::uninit();
+            assert!(!cell.is_initialized());
+            assert!(!cell.is_poisoned());
+            assert_eq!(cell.into_inner(), None);
+        }
+
+        #[test]
+        fn once_cell_try_init_once() {
+            let barrier = Arc::new(Barrier::new(THREADS + 1));
+            let cell = Arc::new(OnceCell::uninit());
+
+            let handles: Vec<_> = (0..THREADS)
+                .map(|id| {
+                    let barrier = Arc::clone(&barrier);
+                    let cell = Arc::clone(&cell);
+                    thread::spawn(move || {
+                        barrier.wait();
+                        assert!(cell.try_init_once(|| id + 1).is_err());
+                    })
+                })
+                .collect();
+
+            let res = cell.try_init_once(|| {
+                barrier.wait();
+                0
+            });
+
+            assert!(res.is_ok());
+            assert_eq!(cell.try_get(), Ok(&0));
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        }
+
+        #[test]
+        fn once_cell_try_init_and_try_get() {
+            static CELL: OnceCell<usize> = OnceCell::uninit();
+            assert_eq!(CELL.try_get(), Err(TryGetError::Uninit));
+
+            let barrier = Arc::new(Barrier::new(THREADS));
+            let winner = Arc::new(RwLock::new(None));
+
+            let handles: Vec<_> = (0..THREADS)
+                .map(|id| {
+                    let barrier = Arc::clone(&barrier);
+                    let winner = Arc::clone(&winner);
+                    thread::spawn(move || {
+                        assert_eq!(CELL.try_get(), Err(TryGetError::Uninit));
+
+                        barrier.wait();
+
+                        let res = CELL.try_init_once(|| id);
+                        match res {
+                            Ok(_) => {
+                                let mut guard = winner.write().unwrap();
+                                *guard = Some(id);
+                            }
+                            Err(TryInitError::AlreadyInit) => {
+                                let id = match CELL.try_get() {
+                                    Ok(id) => *id,
+                                    Err(_) => panic!("`try_get` should not fail after previously returning `AlreadyInit`"),
+                                };
+
+                                loop {
+                                    let observed = {
+                                        let reader = winner.read().unwrap();
+                                        *reader
+                                    };
+
+                                    match observed {
+                                        Some(observed) => {
+                                            assert_eq!(id, observed);
+                                            return;
+                                        },
+                                        None => thread::sleep(Duration::from_millis(10)),
+                                    };
+                                }
+                            }
+                            Err(TryInitError::WouldBlock) => {
+                                let id = loop {
+                                    match CELL.try_get() {
+                                        Err(e) => {
+                                            assert_eq!(e, TryGetError::WouldBlock);
+                                            thread::sleep(Duration::from_millis(10));
+                                        },
+                                        Ok(id) => break *id,
+                                    }
+                                };
+
+                                loop {
+                                    let observed = {
+                                        let reader = winner.read().unwrap();
+                                        *reader
+                                    };
+
+                                    match observed {
+                                        Some(observed) => {
+                                            assert_eq!(id, observed);
+                                            return;
+                                        },
+                                        None => thread::sleep(Duration::from_millis(10)),
+                                    };
+                                }
+                            }
+                        }
+                    })
+                })
+                .collect();
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        }
+
+        #[test]
+        fn recursive() {
+            let cell = OnceCell::uninit();
+            let res = cell.try_init_once(|| {
+                let res = cell.try_init_once(|| 1);
+                assert_eq!(res, Err(TryInitError::WouldBlock));
+                1
+            });
+
+            assert_eq!(res, Ok(()));
+            assert_eq!(cell.try_get(), Ok(&1));
+        }
+    };
+}
+
 macro_rules! generate_tests {
     () => {
         use std::cell::Cell;
         use std::collections::HashMap;
         use std::mem::drop;
         use std::panic::{self, AssertUnwindSafe};
-        use std::sync::{Arc, Barrier, Mutex};
-        use std::thread;
+        use std::sync::Mutex;
 
         use crate::tests::helper::DropGuard;
-        use crate::TryInitError;
 
-        use super::{Lazy, OnceCell};
-
-        const WAITERS: usize = 8;
+        use super::Lazy;
 
         #[test]
         #[should_panic]
@@ -32,14 +176,6 @@ macro_rules! generate_tests {
             let cell = OnceCell::uninit();
             // must not panic again when cell is dropped
             cell.init_once(|| panic!("explicit panic"));
-        }
-
-        #[test]
-        fn once_cell_uninit() {
-            let cell: OnceCell<i32> = OnceCell::uninit();
-            assert!(!cell.is_initialized());
-            assert!(!cell.is_poisoned());
-            assert_eq!(cell.into_inner(), None);
         }
 
         #[test]
@@ -89,35 +225,6 @@ macro_rules! generate_tests {
         }
 
         #[test]
-        fn once_cell_try_init_once() {
-            let barrier = Arc::new(Barrier::new(WAITERS + 1));
-            let cell = Arc::new(OnceCell::uninit());
-
-            let handles: Vec<_> = (0..WAITERS)
-                .map(|id| {
-                    let barrier = Arc::clone(&barrier);
-                    let cell = Arc::clone(&cell);
-                    thread::spawn(move || {
-                        barrier.wait();
-                        assert!(cell.try_init_once(|| id + 1).is_err());
-                    })
-                })
-                .collect();
-
-            let res = cell.try_init_once(|| {
-                barrier.wait();
-                0
-            });
-
-            assert!(res.is_ok());
-            assert_eq!(cell.try_get(), Ok(&0));
-
-            for handle in handles {
-                handle.join().unwrap();
-            }
-        }
-
-        #[test]
         fn once_cell_init_once() {
             let cell = OnceCell::uninit();
             cell.init_once(|| 1);
@@ -129,10 +236,10 @@ macro_rules! generate_tests {
 
         #[test]
         fn once_cell_block() {
-            let barrier = Arc::new(Barrier::new(WAITERS + 1));
+            let barrier = Arc::new(Barrier::new(THREADS + 1));
             let cell = Arc::new(OnceCell::uninit());
 
-            let handles: Vec<_> = (0..WAITERS)
+            let handles: Vec<_> = (0..THREADS)
                 .map(|id| {
                     let barrier = Arc::clone(&barrier);
                     let cell = Arc::clone(&cell);
@@ -161,10 +268,10 @@ macro_rules! generate_tests {
         #[test]
         #[should_panic]
         fn once_cell_propagate_poison_from_block() {
-            let barrier = Arc::new(Barrier::new(WAITERS + 1));
+            let barrier = Arc::new(Barrier::new(THREADS + 1));
             let cell = Arc::new(OnceCell::uninit());
 
-            let handles: Vec<_> = (0..WAITERS)
+            let handles: Vec<_> = (0..THREADS)
                 .map(|id| {
                     let barrier = Arc::clone(&barrier);
                     let cell = Arc::clone(&cell);
@@ -232,18 +339,6 @@ macro_rules! generate_tests {
         }
 
         #[test]
-        fn recursive() {
-            let cell = OnceCell::uninit();
-            cell.init_once(|| {
-                let res = cell.try_init_once(|| 1);
-                assert_eq!(res, Err(TryInitError::WouldBlock));
-                1
-            });
-
-            assert_eq!(cell.get(), Some(&1));
-        }
-
-        #[test]
         fn catch_panic() {
             static PANIC: Lazy<i32> = Lazy::new(|| panic!("explicit panic"));
 
@@ -254,5 +349,3 @@ macro_rules! generate_tests {
         }
     };
 }
-
-generate_tests!();

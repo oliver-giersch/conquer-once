@@ -1,7 +1,8 @@
 use core::convert::{TryFrom, TryInto};
-use core::marker::PhantomData;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(feature = "std")]
+use crate::park::StackWaiter;
 use crate::POISON_PANIC_MSG;
 
 use self::OnceState::{Ready, Uninit, WouldBlock};
@@ -12,7 +13,7 @@ const READY: usize = 2;
 const POISONED: usize = 3;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// AtomicState
+// AtomicState (public but not exported)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// The concurrently and atomically mutable internal state of a [`OnceCell`].
@@ -20,7 +21,7 @@ const POISONED: usize = 3;
 /// A `WOULD_BLOCK` value is also interpreted as a `null` pointer to an empty
 /// [`WaiterQueue`] indicating that there is only a single blocked thread.
 #[derive(Debug)]
-pub struct AtomicOnceState(AtomicUsize, PhantomData<*const ()>);
+pub struct AtomicOnceState(AtomicUsize);
 
 /********** impl inherent *************************************************************************/
 
@@ -28,13 +29,13 @@ impl AtomicOnceState {
     /// Creates a new `UNINIT` state.
     #[inline]
     pub(crate) const fn new() -> Self {
-        Self(AtomicUsize::new(UNINIT), PhantomData)
+        Self(AtomicUsize::new(UNINIT))
     }
 
     /// Creates a new `READY` state.
     #[inline]
     pub(crate) const fn ready() -> Self {
-        Self(AtomicUsize::new(READY), PhantomData)
+        Self(AtomicUsize::new(READY))
     }
 
     /// Loads the current state using `ordering`.
@@ -45,22 +46,6 @@ impl AtomicOnceState {
         self.0.load(order).try_into()
     }
 
-    #[cfg(any(test, feature = "std"))]
-    /// Attempts to compare-and-swap the head of the `current` [`WaiterQueue]`
-    /// with the `next` queue.
-    #[inline]
-    pub(crate) fn try_swap_waiters(
-        &self,
-        current: WaiterQueue,
-        new: WaiterQueue,
-        order: Ordering,
-    ) -> Result<(), OnceState> {
-        match self.0.compare_and_swap(current.into(), new.into(), order) {
-            prev if prev == current.into() => Ok(()),
-            prev => Err(prev.try_into().expect(POISON_PANIC_MSG)),
-        }
-    }
-
     /// Attempts to set the state to blocked and fails if the state is either
     /// already initialized or blocked.
     #[inline]
@@ -69,10 +54,32 @@ impl AtomicOnceState {
         match prev.try_into().expect(POISON_PANIC_MSG) {
             Uninit => Ok(()),
             Ready => Err(TryBlockError::AlreadyInit),
-            WouldBlock(waiter) => Err(TryBlockError::WouldBlock(waiter)),
+            WouldBlock(state) => Err(TryBlockError::WouldBlock(state)),
         }
     }
 
+    #[inline]
+    pub(crate) unsafe fn unblock(&self, state: SwapState, order: Ordering) -> BlockedState {
+        BlockedState(self.0.swap(state as usize, order))
+    }
+
+    #[cfg(feature = "std")]
+    /// Attempts to compare-and-swap the head of the `current` [`WaiterQueue]`
+    /// with the `next` queue.
+    #[inline]
+    pub(crate) unsafe fn try_swap_blocked(
+        &self,
+        current: BlockedState,
+        new: BlockedState,
+        success: Ordering,
+    ) -> Result<(), OnceState> {
+        match self.0.compare_and_swap(current.into(), new.into(), success) {
+            prev if prev == current.into() => Ok(()),
+            prev => Err(prev.try_into().expect(POISON_PANIC_MSG)),
+        }
+    }
+
+    /*
     /// Unconditionally swaps the current blocked state to `READY` and returns
     /// the queue of waiting threads.
     #[inline]
@@ -85,21 +92,21 @@ impl AtomicOnceState {
     #[inline]
     pub(crate) fn swap_poisoned(&self, order: Ordering) -> WaiterQueue {
         WaiterQueue::from(self.0.swap(POISONED, order))
-    }
+    }*/
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// State
+// OnceState
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum OnceState {
+pub(crate) enum OnceState {
     /// Initial (uninitialized) state.
     Uninit,
     /// Ready (initialized) state.
     Ready,
     /// Blocked state with queue of waiting threads.
-    WouldBlock(WaiterQueue),
+    WouldBlock(BlockedState),
 }
 
 /********** impl TryFrom **************************************************************************/
@@ -113,7 +120,20 @@ impl TryFrom<usize> for OnceState {
             POISONED => Err(PoisonError),
             UNINIT => Ok(Uninit),
             READY => Ok(Ready),
-            waiter => Ok(WouldBlock(WaiterQueue::from(waiter))),
+            state => Ok(WouldBlock(BlockedState(state))),
+        }
+    }
+}
+
+/********** impl From (usize) *********************************************************************/
+
+impl From<OnceState> for usize {
+    #[inline]
+    fn from(state: OnceState) -> Self {
+        match state {
+            OnceState::Ready => READY,
+            OnceState::Uninit => UNINIT,
+            OnceState::WouldBlock(BlockedState(state)) => state,
         }
     }
 }
@@ -125,7 +145,7 @@ impl TryFrom<usize> for OnceState {
 #[derive(Debug)]
 pub enum TryBlockError {
     AlreadyInit,
-    WouldBlock(WaiterQueue),
+    WouldBlock(BlockedState),
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -137,28 +157,46 @@ pub enum TryBlockError {
 pub struct PoisonError;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// WaiterQueue
+// BlockedState (public but not exported)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// When using the OS reliant blocking strategy, the state encodes a pointer
-/// to the first blocked thread, which forms a linked list of waiting threads.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct WaiterQueue {
-    pub(crate) head: *const (),
-}
+pub struct BlockedState(usize);
 
-/********** impl From *****************************************************************************/
+/********** impl inherent *************************************************************************/
 
-impl From<usize> for WaiterQueue {
-    #[inline]
-    fn from(state: usize) -> Self {
-        Self { head: state as *const () }
+impl BlockedState {
+    #[cfg(feature = "std")]
+    pub(crate) fn as_ptr(self) -> *const () {
+        self.0 as *const _
     }
 }
 
-impl From<WaiterQueue> for usize {
+/********** impl From (for usize) *****************************************************************/
+
+impl From<BlockedState> for usize {
     #[inline]
-    fn from(waiter: WaiterQueue) -> Self {
-        waiter.head as usize
+    fn from(state: BlockedState) -> Self {
+        state.0
     }
+}
+
+/********** impl From (*const StackWaiter) ********************************************************/
+
+#[cfg(feature = "std")]
+impl From<*const StackWaiter> for BlockedState {
+    #[inline]
+    fn from(waiter: *const StackWaiter) -> Self {
+        Self(waiter as usize)
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// SwapState
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#[repr(usize)]
+pub(crate) enum SwapState {
+    Ready = READY,
+    Poisoned = POISONED,
 }

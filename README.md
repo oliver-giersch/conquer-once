@@ -23,7 +23,7 @@ To use this crate, add the following to your `Cargo.toml`
 
 ```
 [dependencies]
-conquer-once = "0.2.1"
+conquer-once = "0.3.0"
 ```
 
 ## Minimum Supported Rust Version (MSRV)
@@ -42,7 +42,7 @@ The feature can be disabled by specifying the dependency as follows:
 
 ``` 
 [dependencies.conquer-once]
-version = "0.2.1"
+version = "0.3.0"
 use-default-features = false
 ```
 

@@ -15,3 +15,11 @@
 
 - updates docs to explicitly specify the concrete synchronization guarantees
 
+## Release `0.3.0`
+
+- mostly internal refactorings
+- adds the `noblock` module containing types which only allow non-blocking
+  initialization
+- `raw` is renamed to `doc` and hidden from documentation, but linked to from
+  within the docs
+- the `Spin` marker type is no longer exported

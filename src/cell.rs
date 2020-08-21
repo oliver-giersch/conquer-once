@@ -1,5 +1,4 @@
-//! Generic definition and implementation of the [`Once `] and [`OnceCell`]
-//! type.
+//! Generic definition and implementation of the [`OnceCell`] type.
 
 use core::cell::UnsafeCell;
 use core::fmt;
@@ -8,19 +7,34 @@ use core::mem::{self, MaybeUninit};
 use core::ptr;
 use core::sync::atomic::Ordering;
 
-use crate::state::{AtomicOnceState, OnceState, TryBlockError, WaiterQueue};
-use crate::{Internal, POISON_PANIC_MSG};
+use crate::state::{AtomicOnceState, BlockedState, OnceState, SwapState, TryBlockError};
+use crate::POISON_PANIC_MSG;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Unblock (trait)
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// An internal (sealed) trait specifying the unblocking mechanism of a cell
+/// locking strategy.
+pub unsafe trait Unblock {
+    /// Unblocks all waiting threads after setting the cell state to `READY`.
+    ///
+    /// # Safety
+    ///
+    /// Must only be called after swapping the cell with `READY` with the state
+    /// returned by the swap operation.
+    unsafe fn on_unblock(state: BlockedState);
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Block (trait)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// A sealed trait for abstracting over different blocking strategies.
-pub trait Block: Default + Internal {
-    /// Blocks the current thread, until `state` is no longer blocking.
+/// An internal (sealed) trait specifying the blocking mechanism of a cell
+/// locking strategy.
+pub unsafe trait Block: Unblock {
+    /// Blocks the current thread until `state` is either `READY` or `POISONED`.
     fn block(state: &AtomicOnceState);
-    /// Unblocks all waiting threads.
-    fn unblock(waiter: WaiterQueue);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -123,6 +137,38 @@ impl<T, B> OnceCell<T, B> {
         self.state.load(Ordering::Relaxed).is_err()
     }
 
+    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
+    /// an [`Err`].
+    ///
+    /// This method never blocks.
+    ///
+    /// When this function returns with an [`Ok`] result, it is guaranteed that
+    /// some initialization closure has run and completed.
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
+    ///
+    /// # Errors
+    ///
+    /// This method fails if the [`OnceCell`] is either not initialized
+    /// ([`Uninit`][TryGetError::Uninit]) or is currently being
+    /// initialized by some other thread
+    /// ([`WouldBlock`][TryGetError::WouldBlock]).
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the [`OnceCell`] has been poisoned.
+    #[inline]
+    pub fn try_get(&self) -> Result<&T, TryGetError> {
+        // (cell:2) this acquire load syncs-with the acq-rel swap (guard:2)
+        match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
+            OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
+            OnceState::Uninit => Err(TryGetError::Uninit),
+            OnceState::WouldBlock(_) => Err(TryGetError::WouldBlock),
+        }
+    }
+
     /// Returns a reference to the inner value without checking whether the
     /// [`OnceCell`] is actually initialized.
     ///
@@ -178,84 +224,7 @@ impl<T, B> OnceCell<T, B> {
     }
 }
 
-impl<T, B: Block> OnceCell<T, B> {
-    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
-    /// an [`Err`].
-    ///
-    /// This method never blocks.
-    ///
-    /// When this function returns with an [`Ok`] result, it is guaranteed that
-    /// some initialization closure has run and completed.
-    /// It is also guaranteed that any memory writes performed by the executed
-    /// closure can be reliably observed by other threads at this point (there
-    /// is a happens-before relation between the closure and code executing
-    /// after the return).
-    ///
-    /// # Errors
-    ///
-    /// This method fails if the [`OnceCell`] is either not initialized
-    /// ([`Uninit`][TryGetError::Uninit]) or is currently being
-    /// initialized by some other thread
-    /// ([`WouldBlock`][TryGetError::WouldBlock]).
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the [`OnceCell`] has been poisoned.
-    #[inline]
-    pub fn try_get(&self) -> Result<&T, TryGetError> {
-        // (cell:2) this acquire load syncs-with the acq-rel swap (guard:2)
-        match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
-            OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
-            OnceState::Uninit => Err(TryGetError::Uninit),
-            OnceState::WouldBlock(_) => Err(TryGetError::WouldBlock),
-        }
-    }
-
-    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
-    /// [`None`].
-    ///
-    /// This method **blocks** if another thread has already begun initializing
-    /// the [`OnceCell`] concurrently.
-    /// See [`try_get`][OnceCell::try_get] for a non-blocking alternative.
-    ///
-    /// When this function returns with [`Some`], it is guaranteed that some
-    /// initialization closure has run and completed.
-    /// It is also guaranteed that any memory writes performed by the executed
-    /// closure can be reliably observed by other threads at this point (there
-    /// is a happens-before relation between the closure and code executing
-    /// after the return).
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the [`OnceCell`] has been poisoned.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[cfg(feature = "std")]
-    /// use conquer_once::OnceCell;
-    /// # #[cfg(not(feature = "std"))]
-    /// # use conquer_once::spin::OnceCell;
-    ///
-    /// let cell = OnceCell::uninit();
-    /// assert_eq!(cell.get(), None);
-    /// cell.init_once(|| {
-    ///     1
-    /// });
-    /// assert_eq!(cell.get(), Some(&1));
-    /// ```
-    #[inline]
-    pub fn get(&self) -> Option<&T> {
-        match self.try_get() {
-            Ok(res) => Some(res),
-            Err(TryGetError::WouldBlock) => {
-                B::block(&self.state);
-                Some(unsafe { self.get_unchecked() })
-            }
-            Err(TryGetError::Uninit) => None,
-        }
-    }
-
+impl<T, B: Unblock> OnceCell<T, B> {
     /// Attempts to initialize the [`OnceCell`] with `func` if is is
     /// uninitialized and returns [`Ok(())`](Ok) only if `func` is successfully
     /// executed.
@@ -322,6 +291,104 @@ impl<T, B: Block> OnceCell<T, B> {
         }
     }
 
+    /// This method is annotated with `#[cold]` in order to keep it out of the
+    /// fast path.
+    #[inline(never)]
+    #[cold]
+    fn try_init_inner(&self, func: &mut dyn FnMut() -> T) -> Result<&T, TryBlockError> {
+        // sets the state to blocked (i.e. guarantees mutual exclusion) or
+        // returns with an error.
+        let guard = PanicGuard::<B>::try_block(&self.state)?;
+        unsafe {
+            let inner = &mut *self.inner.get();
+            inner.as_mut_ptr().write(func());
+        }
+        guard.disarm();
+
+        Ok(unsafe { self.get_unchecked() })
+    }
+
+    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
+    /// otherwise attempts to initialize it with `func` and return the result.
+    ///
+    /// This method never blocks.
+    ///
+    /// When this function returns with an [`Ok`] result, it is guaranteed that
+    /// some initialization closure has run and completed (it may not be the
+    /// closure specified).
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
+    ///
+    /// # Errors
+    ///
+    /// This method only fails if the calling thread would have to block in case
+    /// another thread is concurrently initializing the [`OnceCell`].
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the [`OnceCell`] has been poisoned.
+    #[inline]
+    pub fn try_get_or_init(&self, func: impl FnOnce() -> T) -> Result<&T, WouldBlockError> {
+        match self.try_get() {
+            Ok(res) => Ok(res),
+            Err(TryGetError::WouldBlock) => Err(WouldBlockError(())),
+            Err(TryGetError::Uninit) => {
+                let mut func = Some(func);
+                let res = self.try_init_inner(&mut || func.take().unwrap()())?;
+                Ok(res)
+            }
+        }
+    }
+}
+
+impl<T, B: Block> OnceCell<T, B> {
+    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
+    /// [`None`].
+    ///
+    /// This method **blocks** if another thread has already begun initializing
+    /// the [`OnceCell`] concurrently.
+    /// See [`try_get`][OnceCell::try_get] for a non-blocking alternative.
+    ///
+    /// When this function returns with [`Some`], it is guaranteed that some
+    /// initialization closure has run and completed.
+    /// It is also guaranteed that any memory writes performed by the executed
+    /// closure can be reliably observed by other threads at this point (there
+    /// is a happens-before relation between the closure and code executing
+    /// after the return).
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the [`OnceCell`] has been poisoned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "std")]
+    /// use conquer_once::OnceCell;
+    /// # #[cfg(not(feature = "std"))]
+    /// # use conquer_once::spin::OnceCell;
+    ///
+    /// let cell = OnceCell::uninit();
+    /// assert_eq!(cell.get(), None);
+    /// cell.init_once(|| {
+    ///     1
+    /// });
+    /// assert_eq!(cell.get(), Some(&1));
+    /// ```
+    #[inline]
+    pub fn get(&self) -> Option<&T> {
+        match self.try_get() {
+            Ok(res) => Some(res),
+            Err(TryGetError::WouldBlock) => {
+                B::block(&self.state);
+                Some(unsafe { self.get_unchecked() })
+            }
+            Err(TryGetError::Uninit) => None,
+        }
+    }
+
     /// Attempts to initialize the [`OnceCell`] with `func` if it is
     /// uninitialized.
     ///
@@ -376,40 +443,6 @@ impl<T, B: Block> OnceCell<T, B> {
     /// Returns a reference to the [`OnceCell`]'s initialized inner state or
     /// otherwise attempts to initialize it with `func` and return the result.
     ///
-    /// This method never blocks.
-    ///
-    /// When this function returns with an [`Ok`] result, it is guaranteed that
-    /// some initialization closure has run and completed (it may not be the
-    /// closure specified).
-    /// It is also guaranteed that any memory writes performed by the executed
-    /// closure can be reliably observed by other threads at this point (there
-    /// is a happens-before relation between the closure and code executing
-    /// after the return).
-    ///
-    /// # Errors
-    ///
-    /// This method only fails if the calling thread would have to block in case
-    /// another thread is concurrently initializing the [`OnceCell`].
-    ///
-    /// # Panics
-    ///
-    /// This method panics if the [`OnceCell`] has been poisoned.
-    #[inline]
-    pub fn try_get_or_init(&self, func: impl FnOnce() -> T) -> Result<&T, WouldBlockError> {
-        match self.try_get() {
-            Ok(res) => Ok(res),
-            Err(TryGetError::WouldBlock) => Err(WouldBlockError(())),
-            Err(TryGetError::Uninit) => {
-                let mut func = Some(func);
-                let res = self.try_init_inner(&mut || func.take().unwrap()())?;
-                Ok(res)
-            }
-        }
-    }
-
-    /// Returns a reference to the [`OnceCell`]'s initialized inner state or
-    /// otherwise attempts to initialize it with `func` and return the result.
-    ///
     /// This method **blocks** if another thread has already begun
     /// initializing the [`OnceCell`] concurrently.
     /// See [`try_get_or_init`][OnceCell::try_get_or_init] for a non-blocking
@@ -437,28 +470,11 @@ impl<T, B: Block> OnceCell<T, B> {
             }
         }
     }
-
-    /// This method is annotated with `#[cold]` in order to keep it out of the
-    /// fast path.
-    #[inline(never)]
-    #[cold]
-    fn try_init_inner(&self, func: &mut dyn FnMut() -> T) -> Result<&T, TryBlockError> {
-        // sets the state to blocked (i.e. guarantees mutual exclusion) or
-        // returns with an error.
-        let guard = PanicGuard::<B>::try_block(&self.state)?;
-        unsafe {
-            let inner = &mut *self.inner.get();
-            inner.as_mut_ptr().write(func());
-        }
-        guard.disarm();
-
-        Ok(unsafe { self.get_unchecked() })
-    }
 }
 
 /********** impl Debug ****************************************************************************/
 
-impl<T: fmt::Debug, B: Block> fmt::Debug for OnceCell<T, B> {
+impl<T: fmt::Debug, B> fmt::Debug for OnceCell<T, B> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OnceCell").field("inner", &self.try_get().ok()).finish()
@@ -595,7 +611,7 @@ impl std::error::Error for WouldBlockError {}
 /// A guard for catching panics during the execution of the initialization
 /// closure.
 #[derive(Debug)]
-struct PanicGuard<'a, B: Block> {
+struct PanicGuard<'a, B: Unblock> {
     /// The state of the associated [`OnceCell`].
     state: &'a AtomicOnceState,
     /// Flag for indicating if a panic has occurred during the caller supplied
@@ -605,7 +621,7 @@ struct PanicGuard<'a, B: Block> {
     _marker: PhantomData<B>,
 }
 
-impl<'a, B: Block> PanicGuard<'a, B> {
+impl<'a, B: Unblock> PanicGuard<'a, B> {
     /// Attempts to block the [`OnceCell`] and return a guard on success.
     #[inline]
     fn try_block(state: &'a AtomicOnceState) -> Result<Self, TryBlockError> {
@@ -625,17 +641,16 @@ impl<'a, B: Block> PanicGuard<'a, B> {
 
 /********** impl Drop *****************************************************************************/
 
-impl<B: Block> Drop for PanicGuard<'_, B> {
+impl<B: Unblock> Drop for PanicGuard<'_, B> {
     #[inline]
     fn drop(&mut self) {
-        // (guard:2) this acq-rel swap syncs-with the acq-rel CAS (wait:2) and the acquire loads
-        // (cell:1), (cell:2), (wait:1) and the acquire CAS (guard:1)
-        let waiter_queue = if self.poison {
-            self.state.swap_poisoned(Ordering::AcqRel)
-        } else {
-            self.state.swap_ready(Ordering::AcqRel)
-        };
-
-        B::unblock(waiter_queue);
+        let swap = if self.poison { SwapState::Poisoned } else { SwapState::Ready };
+        unsafe {
+            // (guard:2) this acq-rel swap syncs-with the acq-rel CAS (wait:2)
+            // and the acquire loads (cell:1), (cell:2), (wait:1) and the
+            // acquire CAS (guard:1)
+            let prev = self.state.unblock(swap, Ordering::AcqRel);
+            B::on_unblock(prev);
+        }
     }
 }

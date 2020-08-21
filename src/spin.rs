@@ -3,10 +3,15 @@
 
 use core::sync::atomic::{spin_loop_hint, Ordering};
 
-use crate::cell::Block;
-use crate::internal::Internal;
-use crate::state::{AtomicOnceState, OnceState::WouldBlock, WaiterQueue};
+use crate::cell::{Block, Unblock};
+use crate::state::{AtomicOnceState, BlockedState, OnceState::WouldBlock};
 use crate::POISON_PANIC_MSG;
+
+use self::internal::Spin;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Lazy (type alias)
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// A type for lazy initialization of e.g. global static variables, which
 /// provides the same functionality as the `lazy_static!` macro.
@@ -15,8 +20,12 @@ use crate::POISON_PANIC_MSG;
 /// `#[no_std]` compatible.
 ///
 /// For the API of this type alias, see the API of the generic
-/// [`Lazy`](crate::raw::Lazy) type.
+/// [`Lazy`](crate::doc::Lazy) type.
 pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, Spin, F>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// OnceCell (type alias)
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// An interior mutability cell type which allows synchronized one-time
 /// initialization and read-only access exclusively after initialization.
@@ -25,8 +34,12 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, Spin, F>;
 /// `#[no_std]` compatible.
 ///
 /// For the API of this type alias, see the generic
-/// [`OnceCell`](crate::raw::OnceCell) type.
+/// [`OnceCell`](crate::doc::OnceCell) type.
 pub type OnceCell<T> = crate::cell::OnceCell<T, Spin>;
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Once (type alias)
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// A synchronization primitive which can be used to run a one-time global
 /// initialization.
@@ -35,7 +48,7 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, Spin>;
 /// `#[no_std]` compatible.
 ///
 /// For the API of this type alias, see the generic
-/// [`OnceCell`](crate::raw::OnceCell) type.
+/// [`OnceCell`](crate::doc::OnceCell) type.
 /// This is a specialization with `T = ()`.
 pub type Once = OnceCell<()>;
 
@@ -43,18 +56,23 @@ pub type Once = OnceCell<()>;
 // Spin
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Thread blocking (locking) strategy using spin-locks.
-#[derive(Copy, Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
-pub struct Spin;
+mod internal {
+    /// Blocking strategy for blocking threads using spin-locks.
+    #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    pub struct Spin;
+}
 
-/********** impl Internal *************************************************************************/
+/********** impl Unblock **************************************************************************/
 
-impl Internal for Spin {}
+unsafe impl Unblock for Spin {
+    #[inline(always)]
+    unsafe fn on_unblock(_: BlockedState) {}
+}
 
 /********** impl Block ****************************************************************************/
 
-impl Block for Spin {
-    /// Spins until the [`OnceCell`] state is set to `READY` or panics if it
+unsafe impl Block for Spin {
+    /// Spins until the [`OnceCell`] state is set to `READY`, or panics if it
     /// becomes poisoned.
     #[inline]
     fn block(state: &AtomicOnceState) {
@@ -63,13 +81,10 @@ impl Block for Spin {
             spin_loop_hint()
         }
     }
-
-    /// No-op since all waiters stop spinning on their own.
-    #[inline]
-    fn unblock(_: WaiterQueue) {}
 }
 
 #[cfg(test)]
 mod tests {
+    generate_tests_non_blocking!();
     generate_tests!();
 }
