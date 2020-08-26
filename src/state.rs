@@ -58,6 +58,12 @@ impl AtomicOnceState {
         }
     }
 
+    /// Unblocks the state by replacing it with either `Ready` or `Poisoned`.
+    ///
+    /// # Safety
+    ///
+    /// Must not be called if unblocking might cause data races due to
+    /// un-synchronized reads and/or writes.
     #[inline]
     pub(crate) unsafe fn unblock(&self, state: SwapState, order: Ordering) -> BlockedState {
         BlockedState(self.0.swap(state as usize, order))
@@ -78,21 +84,6 @@ impl AtomicOnceState {
             prev => Err(prev.try_into().expect(POISON_PANIC_MSG)),
         }
     }
-
-    /*
-    /// Unconditionally swaps the current blocked state to `READY` and returns
-    /// the queue of waiting threads.
-    #[inline]
-    pub(crate) fn swap_ready(&self, order: Ordering) -> WaiterQueue {
-        WaiterQueue::from(self.0.swap(READY, order))
-    }
-
-    /// Unconditionally swaps the current blocked state to `POISONED` and
-    /// returns the queue of waiting threads.
-    #[inline]
-    pub(crate) fn swap_poisoned(&self, order: Ordering) -> WaiterQueue {
-        WaiterQueue::from(self.0.swap(POISONED, order))
-    }*/
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
