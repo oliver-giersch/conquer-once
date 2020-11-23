@@ -11,7 +11,7 @@
 - improved internal code structure and code re-usage, better facilitates
   monomorphic code usage
 
-## Release `0.2.1`
+### Release `0.2.1`
 
 - updates docs to explicitly specify the concrete synchronization guarantees
 
@@ -23,3 +23,7 @@
 - `raw` is renamed to `doc` and hidden from documentation, but linked to from
   within the docs
 - the `Spin` marker type is no longer exported
+
+### Release `0.3.1`
+
+- fixes an apparent regression, requiring a new compiler than the stated 1.36.0

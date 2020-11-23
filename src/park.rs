@@ -17,7 +17,7 @@ use self::internal::ParkThread;
 // Lazy (type alias)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[cfg(any(test, doctest, feature = "std"))]
+#[cfg(any(test, feature = "std"))]
 /// A type for lazy initialization of e.g. global static variables, which
 /// provides the same functionality as the `lazy_static!` macro.
 ///
@@ -77,7 +77,7 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 // OnceCell (type alias)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[cfg(any(test, doctest, feature = "std"))]
+#[cfg(any(test, feature = "std"))]
 /// An interior mutability cell type which allows synchronized one-time
 /// initialization and read-only access exclusively after initialization.
 ///
@@ -124,7 +124,7 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 // Once (type alias)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#[cfg(any(test, doctest, feature = "std"))]
+#[cfg(any(test, feature = "std"))]
 /// A synchronization primitive which can be used to run a one-time global
 /// initialization.
 ///

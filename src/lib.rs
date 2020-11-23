@@ -28,7 +28,8 @@
 //!
 //! # Credits
 //!
-//! Inspiration for this crate is heavily drawn from [`once_cell`](https://crates.io/crates/once_cell),
+//! Inspiration for this crate is heavily drawn from
+//! [`once_cell`](https://crates.io/crates/once_cell),
 //! but features clear distinctions between blocking and non-blocking operations
 //! and support for `#[no_std]` environments out of the box, by offering
 //! additional synchronization primitives using spin-locks instead of OS reliant
@@ -42,7 +43,7 @@
 //! The reasoning behind re-implementing [`Once`] is the fairly restricted and
 //! partly unstable API of the version in the standard library.
 
-#![cfg_attr(all(not(test), not(doctest), not(feature = "std")), no_std)]
+#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 #![deny(missing_docs)]
 
 #[cfg(test)]

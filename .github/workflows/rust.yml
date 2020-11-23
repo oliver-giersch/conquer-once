@@ -19,11 +19,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-    - name: Build (w/o std feature)
-      run: cargo build --verbose --no-default-features
     - name: Run tests (w/o std feature)
       run: cargo test --verbose --no-default-features
