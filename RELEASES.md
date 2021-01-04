@@ -27,3 +27,7 @@
 ### Release `0.3.1`
 
 - fixes an apparent regression, requiring a new compiler than the stated 1.36.0
+
+### Release `0.3.2`
+
+- fixes potential UB due to insufficiently strict bounds on `Sync` implementation for `OnceCell` (see [Issue #3](https://github.com/oliver-giersch/conquer-once/issues/3))

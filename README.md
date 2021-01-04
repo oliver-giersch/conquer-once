@@ -23,7 +23,7 @@ To use this crate, add the following to your `Cargo.toml`
 
 ```
 [dependencies]
-conquer-once = "0.3.0"
+conquer-once = "0.3.2"
 ```
 
 ## Minimum Supported Rust Version (MSRV)
@@ -40,9 +40,9 @@ exports the types in the crate's `spin` sub-module, which use spin-locks.
 
 The feature can be disabled by specifying the dependency as follows:
 
-``` 
+```
 [dependencies.conquer-once]
-version = "0.3.0"
+version = "0.3.2"
 use-default-features = false
 ```
 
