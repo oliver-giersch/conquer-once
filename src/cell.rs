@@ -62,7 +62,7 @@ pub struct OnceCell<T, B> {
 /********** impl Send + Sync **********************************************************************/
 
 unsafe impl<T, B> Send for OnceCell<T, B> where T: Send {}
-unsafe impl<T, B> Sync for OnceCell<T, B> where T: Sync {}
+unsafe impl<T, B> Sync for OnceCell<T, B> where T: Send + Sync {}
 
 /********** impl inherent *************************************************************************/
 
