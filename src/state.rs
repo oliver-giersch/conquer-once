@@ -50,7 +50,11 @@ impl AtomicOnceState {
     /// already initialized or blocked.
     #[inline]
     pub(crate) fn try_block(&self, order: Ordering) -> Result<(), TryBlockError> {
-        let prev = self.0.compare_and_swap(UNINIT, WOULD_BLOCK, order);
+        let prev = match self.0.compare_exchange(UNINIT, WOULD_BLOCK, order, Ordering::Relaxed) {
+            Ok(prev) => prev,
+            Err(prev) => prev,
+        };
+
         match prev.try_into().expect(POISON_PANIC_MSG) {
             Uninit => Ok(()),
             Ready => Err(TryBlockError::AlreadyInit),
@@ -79,7 +83,13 @@ impl AtomicOnceState {
         new: BlockedState,
         success: Ordering,
     ) -> Result<(), OnceState> {
-        match self.0.compare_and_swap(current.into(), new.into(), success) {
+        let prev =
+            match self.0.compare_exchange(current.into(), new.into(), success, Ordering::Relaxed) {
+                Ok(prev) => prev,
+                Err(prev) => prev,
+            };
+
+        match prev {
             prev if prev == current.into() => Ok(()),
             prev => Err(prev.try_into().expect(POISON_PANIC_MSG)),
         }
