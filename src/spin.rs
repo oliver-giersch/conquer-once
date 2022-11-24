@@ -1,17 +1,17 @@
 //! Synchronized one-time and lazy initialization primitives that use spin-locks
 //! in case of concurrent accesses under contention.
 
+// NOTE: spin_loop_hint depracated since 1.51, replacement stable since 1.49,
+// but MSRV is 1.36
 use core::sync::atomic::{spin_loop_hint, Ordering};
 
-use crate::cell::{Block, Unblock};
-use crate::state::{AtomicOnceState, BlockedState, OnceState::WouldBlock};
-use crate::POISON_PANIC_MSG;
+use crate::{
+    cell::{Block, Unblock},
+    state::{AtomicOnceState, BlockedState, OnceState::WouldBlock},
+    POISON_PANIC_MSG,
+};
 
 use self::internal::Spin;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Lazy (type alias)
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// A type for lazy initialization of e.g. global static variables, which
 /// provides the same functionality as the `lazy_static!` macro.
@@ -23,10 +23,6 @@ use self::internal::Spin;
 /// [`Lazy`](crate::doc::Lazy) type.
 pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, Spin, F>;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// OnceCell (type alias)
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 /// An interior mutability cell type which allows synchronized one-time
 /// initialization and read-only access exclusively after initialization.
 ///
@@ -36,10 +32,6 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, Spin, F>;
 /// For the API of this type alias, see the generic
 /// [`OnceCell`](crate::doc::OnceCell) type.
 pub type OnceCell<T> = crate::cell::OnceCell<T, Spin>;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Once (type alias)
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// A synchronization primitive which can be used to run a one-time global
 /// initialization.
@@ -52,24 +44,16 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, Spin>;
 /// This is a specialization with `T = ()`.
 pub type Once = OnceCell<()>;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Spin
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 mod internal {
     /// Blocking strategy for blocking threads using spin-locks.
     #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
     pub struct Spin;
 }
 
-/********** impl Unblock **************************************************************************/
-
-unsafe impl Unblock for Spin {
+impl Unblock for Spin {
     #[inline(always)]
     unsafe fn on_unblock(_: BlockedState) {}
 }
-
-/********** impl Block ****************************************************************************/
 
 unsafe impl Block for Spin {
     /// Spins until the [`OnceCell`] state is set to `READY`, or panics if it
@@ -78,7 +62,7 @@ unsafe impl Block for Spin {
     fn block(state: &AtomicOnceState) {
         // (spin:1) this acquire load syncs-with the acq-rel swap (guard:2)
         while let WouldBlock(_) = state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
-            spin_loop_hint()
+            spin_loop_hint();
         }
     }
 }

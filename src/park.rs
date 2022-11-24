@@ -1,21 +1,21 @@
-use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, Thread};
+use std::{
+    cell::Cell,
+    sync::atomic::{AtomicBool, Ordering},
+    thread::{self, Thread},
+};
 
 use conquer_util::BackOff;
 
-use crate::cell::{Block, Unblock};
-use crate::state::{
-    AtomicOnceState, BlockedState,
-    OnceState::{Ready, Uninit, WouldBlock},
+use crate::{
+    cell::{Block, Unblock},
+    state::{
+        AtomicOnceState, BlockedState,
+        OnceState::{Ready, Uninit, WouldBlock},
+    },
+    POISON_PANIC_MSG,
 };
-use crate::POISON_PANIC_MSG;
 
 use self::internal::ParkThread;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Lazy (type alias)
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(any(test, feature = "std"))]
 /// A type for lazy initialization of e.g. global static variables, which
@@ -73,10 +73,6 @@ use self::internal::ParkThread;
 /// ```
 pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// OnceCell (type alias)
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 #[cfg(any(test, feature = "std"))]
 /// An interior mutability cell type which allows synchronized one-time
 /// initialization and read-only access exclusively after initialization.
@@ -120,10 +116,6 @@ pub type Lazy<T, F = fn() -> T> = crate::lazy::Lazy<T, ParkThread, F>;
 /// ```
 pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Once (type alias)
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 #[cfg(any(test, feature = "std"))]
 /// A synchronization primitive which can be used to run a one-time global
 /// initialization.
@@ -165,18 +157,12 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 /// ```
 pub type Once = OnceCell<()>;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// ParkThread
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 mod internal {
-    /// Blocking strategy using low-level and OS reliant parking and un-parking
+    /// Blocking strategy using low-level and OS-reliant parking and un-parking
     /// mechanisms.
     #[derive(Copy, Clone, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
     pub struct ParkThread;
 }
-
-/********** impl inherent *************************************************************************/
 
 impl ParkThread {
     #[inline]
@@ -201,15 +187,16 @@ impl ParkThread {
     }
 }
 
-/********** impl Unblock **************************************************************************/
-
-unsafe impl Unblock for ParkThread {
+impl Unblock for ParkThread {
     /// Unblocks all blocked waiting threads.
     #[inline]
     unsafe fn on_unblock(state: BlockedState) {
         let mut curr = state.as_ptr() as *const StackWaiter;
         while !curr.is_null() {
             let thread = {
+                // SAFETY: no mutable references to a stack waiter can exist
+                // and the waiter struct is ensured to live while its thread is
+                // parked, so the pointer can be safely dereferenced
                 let waiter = &*curr;
                 curr = waiter.next.get();
                 // there can be now data race when mutating the thread-cell as only the unblocking
@@ -226,21 +213,20 @@ unsafe impl Unblock for ParkThread {
     }
 }
 
-/********** impl Block ****************************************************************************/
-
 unsafe impl Block for ParkThread {
-    /// Blocks (parks) the current thread until it is woken up by the thread with permission to
-    /// initialize the `OnceCell`.
+    /// Blocks (parks) the current thread until it is woken up by the thread
+    /// with permission to initialize the `OnceCell`.
     #[inline]
     fn block(state: &AtomicOnceState) {
+        // spin a little before parking the thread in case the state is
+        // quickly unlocked again
         let back_off = BackOff::new();
-        // spin a little before parking the thread in case the state is quickly unlocked again
         let blocked = match Self::try_block_spinning(state, &back_off) {
             Ok(_) => return,
             Err(blocked) => blocked,
         };
 
-        // create a linked list node on the current threads stack, which is
+        // create a linked list node on the current thread's stack, which is
         // guaranteed to stay alive while the thread is parked.
         let waiter = StackWaiter {
             ready: AtomicBool::new(false),
@@ -251,7 +237,9 @@ unsafe impl Block for ParkThread {
         let mut curr = blocked;
         let head = BlockedState::from(&waiter as *const _);
 
-        while let Err(err) = unsafe { state.try_swap_blocked(curr, head, Ordering::AcqRel) } {
+        // SAFETY: TODO...
+        // (wait:2) this acq-rel CAS syncs-with itself and the acq load (wait:1)
+        while let Err(err) = unsafe { state.try_enqueue_waiter(curr, head, Ordering::AcqRel) } {
             match err {
                 // another parked thread succeeded in placing itself at the queue's front
                 WouldBlock(queue) => {
@@ -271,26 +259,39 @@ unsafe impl Block for ParkThread {
         }
 
         // park the thread until it is woken up by the thread that first set the state to blocked.
+        // the loop guards against spurious wake ups
         // (ready:1) this acquire load syncs-with the release store (ready:2)
         while !waiter.ready.load(Ordering::Acquire) {
             thread::park();
         }
 
-        // propagates poisoning
+        // SAFETY: propagates poisoning as required by the trait
         // (wait:3) this acquire load syncs-with the acq-rel swap (guard:2)
         assert_eq!(state.load(Ordering::Acquire).expect(POISON_PANIC_MSG), Ready);
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// StackWaiter
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 /// A linked list node that lives on the stack of a parked thread.
 #[repr(align(4))]
 pub(crate) struct StackWaiter {
+    /// The flag marking the waiter as either blocked or ready to proceed.
+    ///
+    /// This is read by the owning thread and is set by the thread that gets to
+    /// run the initialization closure and responsible for unparking all blocked
+    /// threads, which may be either the same or any other thread.
     ready: AtomicBool,
+    /// The handle for the parked thread that is used to unpark it, once the
+    /// initialization is complete.
+    ///
+    /// This field is in fact mutated by a thread that is potentially not the
+    /// same as the owning thread, but exclusively in the case where the
+    /// mutating thread has exclusive access to this field.
     thread: Cell<Option<Thread>>,
+    /// The pointer to the next blocked thread.
+    ///
+    /// This field is mutated exclusively by **either** the owning thread
+    /// **before** the waiter becomes visible to other threads or by the thread
+    /// responsible for unparking all waiting threads.
     next: Cell<*const StackWaiter>,
 }
 

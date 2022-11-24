@@ -1,17 +1,8 @@
 //! Generic definition and implementation of the [`Lazy`] type.
 
-use core::borrow::Borrow;
-use core::convert::AsRef;
-use core::fmt;
-use core::mem::ManuallyDrop;
-use core::ops::Deref;
-use core::ptr;
+use core::{borrow::Borrow, convert::AsRef, fmt, mem::ManuallyDrop, ops::Deref, ptr};
 
 use crate::cell::{Block, OnceCell, Unblock};
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Lazy
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /// A type for lazy initialization of e.g. global static variables, which
 /// provides the same functionality as the `lazy_static!` macro.
@@ -23,8 +14,6 @@ pub struct Lazy<T, B, F = fn() -> T> {
     /// be used as well.
     init: ManuallyDrop<F>,
 }
-
-/********** impl inherent *************************************************************************/
 
 impl<T, B, F> Lazy<T, B, F> {
     /// Creates a new uninitialized [`Lazy`] with the given `init` closure.
@@ -84,8 +73,6 @@ where
     }
 }
 
-/********** impl AsRef ****************************************************************************/
-
 impl<T, B, F> AsRef<T> for Lazy<T, B, F>
 where
     B: Block,
@@ -97,8 +84,6 @@ where
     }
 }
 
-/********** impl Borrow ***************************************************************************/
-
 impl<T, B, F> Borrow<T> for Lazy<T, B, F>
 where
     B: Block,
@@ -109,8 +94,6 @@ where
         Lazy::get_or_init(self)
     }
 }
-
-/********** impl Debug ****************************************************************************/
 
 impl<T, B, F> fmt::Debug for Lazy<T, B, F>
 where
@@ -124,8 +107,6 @@ where
     }
 }
 
-/********** impl Display **************************************************************************/
-
 impl<T, B, F> fmt::Display for Lazy<T, B, F>
 where
     T: fmt::Display,
@@ -137,8 +118,6 @@ where
         fmt::Display::fmt(Self::get_or_init(self), f)
     }
 }
-
-/********** impl Deref ****************************************************************************/
 
 impl<T, B, F> Deref for Lazy<T, B, F>
 where

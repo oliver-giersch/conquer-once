@@ -1,5 +1,7 @@
-use core::convert::{TryFrom, TryInto};
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    convert::{TryFrom, TryInto},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 #[cfg(feature = "std")]
 use crate::park::StackWaiter;
@@ -12,18 +14,12 @@ const UNINIT: usize = 1;
 const READY: usize = 2;
 const POISONED: usize = 3;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// AtomicState (public but not exported)
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 /// The concurrently and atomically mutable internal state of a [`OnceCell`].
 ///
 /// A `WOULD_BLOCK` value is also interpreted as a `null` pointer to an empty
 /// [`WaiterQueue`] indicating that there is only a single blocked thread.
 #[derive(Debug)]
 pub struct AtomicOnceState(AtomicUsize);
-
-/********** impl inherent *************************************************************************/
 
 impl AtomicOnceState {
     /// Creates a new `UNINIT` state.
@@ -72,12 +68,21 @@ impl AtomicOnceState {
     pub(crate) unsafe fn unblock(&self, state: SwapState, order: Ordering) -> BlockedState {
         BlockedState(self.0.swap(state as usize, order))
     }
+}
 
-    #[cfg(feature = "std")]
+#[cfg(feature = "std")]
+impl AtomicOnceState {
     /// Attempts to compare-and-swap the head of the `current` [`WaiterQueue]`
-    /// with the `next` queue.
+    /// with the `new` queue.
+    ///
+    /// NOTE: This must be used instead of `try_block` for the `ParkThread`
+    /// strategy implementation.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to ensure that `new` is a valid pointer to a `StackWaiter`.
     #[inline]
-    pub(crate) unsafe fn try_swap_blocked(
+    pub(crate) unsafe fn try_enqueue_waiter(
         &self,
         current: BlockedState,
         new: BlockedState,
@@ -96,9 +101,36 @@ impl AtomicOnceState {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// OnceState
-////////////////////////////////////////////////////////////////////////////////////////////////////
+/// The state of the (atomic) synchronization variable at the time a thread
+/// attempted to initiate its `init` closure but was blocked from doing so
+/// because another thread was already in this mutually exclusive section.
+///
+/// Note: This is not actually exported but needs to be `pub` because it appears
+/// in the API of the (sealed public) `Unblock` trait.
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct BlockedState(usize);
+
+impl BlockedState {
+    #[cfg(feature = "std")]
+    pub(crate) fn as_ptr(self) -> *const () {
+        self.0 as *const _
+    }
+}
+
+impl From<BlockedState> for usize {
+    #[inline]
+    fn from(state: BlockedState) -> Self {
+        state.0
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<*const StackWaiter> for BlockedState {
+    #[inline]
+    fn from(waiter: *const StackWaiter) -> Self {
+        Self(waiter as usize)
+    }
+}
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum OnceState {
@@ -109,8 +141,6 @@ pub(crate) enum OnceState {
     /// Blocked state with queue of waiting threads.
     WouldBlock(BlockedState),
 }
-
-/********** impl TryFrom **************************************************************************/
 
 impl TryFrom<usize> for OnceState {
     type Error = PoisonError;
@@ -126,8 +156,6 @@ impl TryFrom<usize> for OnceState {
     }
 }
 
-/********** impl From (usize) *********************************************************************/
-
 impl From<OnceState> for usize {
     #[inline]
     fn from(state: OnceState) -> Self {
@@ -139,62 +167,14 @@ impl From<OnceState> for usize {
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// TryBlockError
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Debug)]
-pub enum TryBlockError {
+pub(crate) enum TryBlockError {
     AlreadyInit,
     WouldBlock(BlockedState),
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// PoisonError
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 /// An error type indicating a `OnceCell` has been poisoned.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct PoisonError;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// BlockedState (public but not exported)
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct BlockedState(usize);
-
-/********** impl inherent *************************************************************************/
-
-impl BlockedState {
-    #[cfg(feature = "std")]
-    pub(crate) fn as_ptr(self) -> *const () {
-        self.0 as *const _
-    }
-}
-
-/********** impl From (for usize) *****************************************************************/
-
-impl From<BlockedState> for usize {
-    #[inline]
-    fn from(state: BlockedState) -> Self {
-        state.0
-    }
-}
-
-/********** impl From (*const StackWaiter) ********************************************************/
-
-#[cfg(feature = "std")]
-impl From<*const StackWaiter> for BlockedState {
-    #[inline]
-    fn from(waiter: *const StackWaiter) -> Self {
-        Self(waiter as usize)
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// SwapState
-////////////////////////////////////////////////////////////////////////////////////////////////////
+pub(crate) struct PoisonError;
 
 #[repr(usize)]
 pub(crate) enum SwapState {

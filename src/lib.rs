@@ -45,6 +45,7 @@
 
 #![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 #![deny(missing_docs)]
+#![deny(clippy::missing_safety_doc)]
 
 #[cfg(test)]
 #[macro_use]
@@ -76,6 +77,4 @@ pub use crate::park::Once;
 #[cfg(feature = "std")]
 pub use crate::park::OnceCell;
 
-/// Whenever a poisoned [`OnceCell`] is encountered, the panic is propagated
-/// with this message.
 const POISON_PANIC_MSG: &str = "OnceCell instance has been poisoned.";
