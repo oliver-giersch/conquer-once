@@ -14,10 +14,13 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     steps:
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.36.0
           components: clippy
+      - run: cargo check
+      - run: cargo check --no-default-features
       - run: cargo clippy --all-features
   
   test:
@@ -27,7 +30,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         rust: [1.36.0, 1.49.0, stable, nightly]
     steps:
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.os }}
       - run: cargo test --verbose
@@ -36,7 +40,8 @@ jobs:
   miri:
     runs-on: ubuntu-latest
     steps:
-      - uses: dtolnay/rust-toolchain@v1
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
           components: miri
