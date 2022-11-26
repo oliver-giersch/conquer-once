@@ -111,6 +111,7 @@ impl AtomicOnceState {
 pub struct BlockedState(usize);
 
 impl BlockedState {
+    // TODO: return *const StackWaiter directly?
     #[cfg(feature = "std")]
     pub(crate) fn as_ptr(self) -> *const () {
         self.0 as *const _

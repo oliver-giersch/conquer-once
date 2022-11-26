@@ -10,7 +10,7 @@ documentation = "https://docs.rs/conquer-once"
 keywords = ["lazy", "one-time", "initialization", "no-std", "multi-threading"]
 categories = ["concurrency", "no-std", "memory-management"]
 edition = "2018"
-exclude = [".travis.yml", ".github/"]
+exclude = [".github"]
 
 [features]
 default = ["std"]
