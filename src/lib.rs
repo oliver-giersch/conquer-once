@@ -45,7 +45,6 @@
 
 #![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 #![deny(missing_docs)]
-#![deny(clippy::missing_safety_doc)]
 
 #[cfg(test)]
 #[macro_use]

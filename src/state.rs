@@ -110,18 +110,17 @@ impl AtomicOnceState {
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct BlockedState(usize);
 
-impl BlockedState {
-    // TODO: return *const StackWaiter directly?
-    #[cfg(feature = "std")]
-    pub(crate) fn as_ptr(self) -> *const () {
-        self.0 as *const _
-    }
-}
-
 impl From<BlockedState> for usize {
     #[inline]
     fn from(state: BlockedState) -> Self {
         state.0
+    }
+}
+
+#[cfg(feature = "std")]
+impl BlockedState {
+    pub(crate) fn as_ptr(self) -> *const StackWaiter {
+        self.0 as *const _
     }
 }
 
