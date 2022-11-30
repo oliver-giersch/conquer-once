@@ -139,8 +139,8 @@ pub type OnceCell<T> = crate::cell::OnceCell<T, ParkThread>;
 /// static INIT: Once = Once::uninit();
 ///
 /// fn get_global() -> usize {
-///     // this is safe because the `Once` ensures the `static mut` is assigned
-///     // by only one thread and without data races.
+///     // SAFETY: this is safe because the `Once` ensures the `static mut` is
+///     // assigned by only one thread and without data races.
 ///     unsafe {
 ///         INIT.init_once(|| {
 ///             GLOBAL = expensive_computation();
@@ -197,7 +197,8 @@ impl Unblock for ParkThread {
                 // SAFETY: no mutable references to a stack waiter can exist
                 // and the waiter struct is ensured to live while its thread is
                 // parked, so the pointer can be safely dereferenced
-                let waiter = &*curr;
+                #[allow(unused_unsafe)]
+                let waiter = unsafe { &*curr };
                 curr = waiter.next.get();
                 // there can be now data race when mutating the thread-cell as only the unblocking
                 // thread will access it, the stack waiter can dropped as soon as the following
@@ -237,7 +238,9 @@ unsafe impl Block for ParkThread {
         let mut curr = blocked;
         let head = BlockedState::from(&waiter as *const _);
 
-        // SAFETY: TODO...
+        // SAFETY: `head` is a valid pointer to a `StackWaiter` that will live
+        // for the duration of this function, which in turn will only return
+        // when no other thread can still observe any pointer to it
         // (wait:2) this acq-rel CAS syncs-with itself and the acq load (wait:1)
         while let Err(err) = unsafe { state.try_enqueue_waiter(curr, head, Ordering::AcqRel) } {
             match err {

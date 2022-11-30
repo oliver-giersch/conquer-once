@@ -105,7 +105,9 @@ impl<T, B> OnceCell<T, B> {
     /// ```
     #[inline]
     pub fn into_inner(mut self) -> Option<T> {
-        let res = self.take_inner(false);
+        // SAFETY: `take_inner` can not be called again after this, since we
+        // forget `self` right after calling it
+        let res = unsafe { self.take_inner(false) };
         mem::forget(self);
         res
     }
@@ -205,17 +207,27 @@ impl<T, B> OnceCell<T, B> {
     /// Moves the inner cell value out of the [`OnceCell`] and returns it
     /// wrapped in [`Some`], if it has been successfully initialized.
     ///
+    /// # Safety
+    ///
+    /// If the cell is initialized, this must be called at most once.
+    ///
     /// # Panics
     ///
     /// If `ignore_poisoning` is `false`, this method will panic if the
     /// [`OnceCell`] has been poisoned, otherwise it will simply return
     /// [`None`].
     #[inline]
-    fn take_inner(&mut self, ignore_poisoning: bool) -> Option<T> {
+    unsafe fn take_inner(&mut self, ignore_poisoning: bool) -> Option<T> {
         #[allow(clippy::match_wild_err_arm)]
         match self.state.load(Ordering::Relaxed) {
             Err(_) if !ignore_poisoning => panic!("{}", POISON_PANIC_MSG),
-            Ok(OnceState::Ready) => Some(unsafe { ptr::read(self.get_unchecked()) }),
+            // SAFETY: the mutable reference guarantees there can be no aliased
+            // reference and since the state is `Ready`
+            Ok(OnceState::Ready) =>
+            {
+                #[allow(unused_unsafe)]
+                Some(unsafe { ptr::read(self.get_unchecked()) })
+            }
             _ => None,
         }
     }
@@ -296,7 +308,7 @@ impl<T, B: Unblock> OnceCell<T, B> {
         // sets the state to blocked (i.e. guarantees mutual exclusion) or
         // returns with an error.
         let guard = PanicGuard::<B>::try_block(&self.state)?;
-        // SAFETY: try_block ensures mutual exclusion, so no aliasing of the
+        // SAFETY: `try_block` ensures mutual exclusion, so no aliasing of the
         // cell is possible and the raw pointer write is unproblematic (pointer
         // is trivially aligned and valid)
         unsafe {
@@ -384,9 +396,9 @@ impl<T, B: Block> OnceCell<T, B> {
             Ok(res) => Some(res),
             Err(TryGetError::WouldBlock) => {
                 B::block(&self.state);
-                // SAFETY: block only returns once the state has become
-                // `INITIALIZED` (panics otherwise), which can only happen after
-                // the cell has been initialized
+                // SAFETY: `block` only returns when the state is set to
+                // `INITIALIZED` and acts as an acquire barrier (initialization
+                // happens-before block returns)
                 Some(unsafe { self.get_unchecked() })
             }
             Err(TryGetError::Uninit) => None,
@@ -440,6 +452,8 @@ impl<T, B: Block> OnceCell<T, B> {
     #[inline]
     pub fn init_once(&self, func: impl FnOnce() -> T) {
         if let Err(TryInitError::WouldBlock) = self.try_init_once(func) {
+            // block the current thread if the cell is currently being
+            // initialized
             B::block(&self.state);
         }
     }
@@ -469,7 +483,8 @@ impl<T, B: Block> OnceCell<T, B> {
             Err(_) => {
                 B::block(&self.state);
                 // SAFETY: `block` only returns when the state is set to
-                // `INITIALIZED` and acts as an acquire barrier
+                // `INITIALIZED` and acts as an acquire barrier (initialization
+                // happens-before block returns)
                 unsafe { self.get_unchecked() }
             }
         }
@@ -486,8 +501,9 @@ impl<T: fmt::Debug, B> fmt::Debug for OnceCell<T, B> {
 impl<T, B> Drop for OnceCell<T, B> {
     #[inline]
     fn drop(&mut self) {
-        // drop must never panic
-        mem::drop(self.take_inner(true))
+        // drop must never panic, so poisoning is ignored
+        // SAFETY: take_inner cannot be called again after drop has been called
+        mem::drop(unsafe { self.take_inner(true) })
     }
 }
 

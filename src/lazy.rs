@@ -67,6 +67,8 @@ where
     #[inline]
     pub fn get_or_init(lazy: &Self) -> &T {
         lazy.cell.get_or_init(|| {
+            // SAFETY: this (outer) closure is only called once and `init` is
+            // never dropped, so it will never be touched again
             let func = unsafe { ptr::read(&*lazy.init) };
             func()
         })
