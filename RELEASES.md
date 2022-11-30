@@ -31,3 +31,8 @@
 ### Release `0.3.2`
 
 - fixes potential UB due to insufficiently strict bounds on `Sync` implementation for `OnceCell` (see [Issue #3](https://github.com/oliver-giersch/conquer-once/issues/3))
+
+### Release `0.3.3`
+
+- improves and clarifies wording of public documentation
+- improves internal documentation around all uses of unsafe code

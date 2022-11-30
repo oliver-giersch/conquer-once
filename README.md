@@ -5,8 +5,6 @@ blocking mechanisms with clear distinction between blocking and non-blocking
 methods and additional support for `#[no_std]` environments when using
 spin-locks.
 
-
-
 [![Build Status](https://github.com/oliver-giersch/conquer-once/workflows/Rust/badge.svg)](
 https://github.com/oliver-giersch/conquer-once/actions)
 [![Latest version](https://img.shields.io/crates/v/conquer-once.svg)](
@@ -23,7 +21,7 @@ To use this crate, add the following to your `Cargo.toml`
 
 ```
 [dependencies]
-conquer-once = "0.3.2"
+conquer-once = "0.3.3"
 ```
 
 ## Minimum Supported Rust Version (MSRV)
@@ -42,7 +40,7 @@ The feature can be disabled by specifying the dependency as follows:
 
 ```
 [dependencies.conquer-once]
-version = "0.3.2"
+version = "0.3.3"
 use-default-features = false
 ```
 
