@@ -26,8 +26,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # test against MSRV and next-MSRV
-        rust: [1.36.0, 1.49.0, stable, nightly]
+        # test against MSRV
+        rust: [1.49.0, stable, nightly]
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master

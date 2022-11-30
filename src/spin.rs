@@ -1,10 +1,7 @@
 //! Synchronized one-time and lazy initialization primitives that use spin-locks
 //! in case of concurrent accesses under contention.
 
-// NOTE: spin_loop_hint depracated since 1.51, replacement stable since 1.49,
-// but MSRV is 1.36
-#[allow(deprecated)]
-use core::sync::atomic::{spin_loop_hint, Ordering};
+use core::{hint, sync::atomic::Ordering};
 
 use crate::{
     cell::{Block, Unblock},
@@ -63,10 +60,7 @@ unsafe impl Block for Spin {
     fn block(state: &AtomicOnceState) {
         // (spin:1) this acquire load syncs-with the acq-rel swap (guard:2)
         while let WouldBlock(_) = state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
-            // MSRV is currently 1.36.0 and `spin_loop_hint` was only depracated
-            // in 1.51.0
-            #[allow(deprecated)]
-            spin_loop_hint();
+            hint::spin_loop();
         }
     }
 }

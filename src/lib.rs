@@ -45,6 +45,7 @@
 
 #![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 #![deny(missing_docs)]
+#![forbid(clippy::undocumented_unsafe_blocks)]
 
 #[cfg(test)]
 #[macro_use]

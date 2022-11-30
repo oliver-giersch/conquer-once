@@ -36,3 +36,7 @@
 
 - improves and clarifies wording of public documentation
 - improves internal documentation around all uses of unsafe code
+
+## Release `0.4.0`
+
+- bumps MSRV to 1.49.0

@@ -21,12 +21,12 @@ To use this crate, add the following to your `Cargo.toml`
 
 ```
 [dependencies]
-conquer-once = "0.3.3"
+conquer-once = "0.4.0"
 ```
 
 ## Minimum Supported Rust Version (MSRV)
 
-The minimum supported Rust version for this crate is 1.36.0.
+The minimum supported Rust version for this crate is 1.49.0.
 
 ## Cargo Features
 
