@@ -1,7 +1,7 @@
 [package]
 name = "conquer-once"
 description = "Synchronization primitives for lazy and one-time initialization"
-version = "0.3.3"
+version = "0.4.0"
 authors = ["Oliver Giersch"]
 license = "MIT/Apache-2.0"
 readme = "README.md"
@@ -9,7 +9,7 @@ repository = "https://github.com/oliver-giersch/conquer-once.git"
 documentation = "https://docs.rs/conquer-once"
 keywords = ["lazy", "one-time", "initialization", "no-std", "multi-threading"]
 categories = ["concurrency", "no-std", "memory-management"]
-edition = "2018"
+edition = "2021"
 exclude = [".github"]
 
 [features]
