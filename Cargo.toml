@@ -9,7 +9,7 @@ repository = "https://github.com/oliver-giersch/conquer-once.git"
 documentation = "https://docs.rs/conquer-once"
 keywords = ["lazy", "one-time", "initialization", "no-std", "multi-threading"]
 categories = ["concurrency", "no-std", "memory-management"]
-edition = "2021"
+edition = "2018"
 exclude = [".github"]
 
 [features]
