@@ -28,6 +28,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         # test against MSRV
         rust: [1.49.0, stable, nightly]
+        # linking with current MSRV on macos seems broken, so disable it
+        exclude:
+          - os: macos-latest
+            rust: 1.49.0
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@master
