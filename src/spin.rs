@@ -53,6 +53,9 @@ impl Unblock for Spin {
     unsafe fn on_unblock(_: BlockedState) {}
 }
 
+// SAFETY: The loop in `Spin::block` correctly blocks the calling thread until
+// `state` is set to [`OnceState::Ready`] in (guard:2), which is only done
+// *after* the initialization closure has run.
 unsafe impl Block for Spin {
     /// Spins until the [`OnceCell`] state is set to `READY`, or panics if it
     /// becomes poisoned.

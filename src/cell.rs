@@ -60,7 +60,9 @@ pub struct OnceCell<T, B> {
     _marker: PhantomData<B>,
 }
 
+// SAFETY: The implementation ensures correct synchronization of initialization.
 unsafe impl<T, B> Send for OnceCell<T, B> where T: Send {}
+// SAFETY: The implementation ensures correct synchronization of initialization.
 unsafe impl<T, B> Sync for OnceCell<T, B> where T: Send + Sync {}
 
 impl<T, B> OnceCell<T, B> {
@@ -161,6 +163,8 @@ impl<T, B> OnceCell<T, B> {
     pub fn try_get(&self) -> Result<&T, TryGetError> {
         // (cell:2) this acquire load syncs-with the acq-rel swap (guard:2)
         match self.state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
+            // SAFETY: The correctly synchronized atomic state load makes this a
+            // checked `get`.
             OnceState::Ready => Ok(unsafe { self.get_unchecked() }),
             OnceState::Uninit => Err(TryGetError::Uninit),
             OnceState::WouldBlock(_) => Err(TryGetError::WouldBlock),
@@ -218,14 +222,17 @@ impl<T, B> OnceCell<T, B> {
     /// [`None`].
     #[inline]
     unsafe fn take_inner(&mut self, ignore_poisoning: bool) -> Option<T> {
-        #[allow(clippy::match_wild_err_arm)]
+        // No synchronization is required because the function ensures exclusive
+        // access.
         match self.state.load(Ordering::Relaxed) {
             Err(_) if !ignore_poisoning => panic!("{}", POISON_PANIC_MSG),
-            // SAFETY: the mutable reference guarantees there can be no aliased
-            // reference and since the state is `Ready`
-            Ok(OnceState::Ready) =>
-            {
-                #[allow(unused_unsafe)]
+            // SAFETY: The mutable reference guarantees there can be no aliased
+            // reference and since the state is `Ready`.
+            Ok(OnceState::Ready) => {
+                // SAFETY: The observed ready state ensures the pointer to the
+                // inner state can be safely extracted, as long the contained
+                // inner value is never dropped, which it won't due to being
+                // wrapped in `MaybeUninit`.
                 Some(unsafe { ptr::read(self.get_unchecked()) })
             }
             _ => None,
@@ -537,7 +544,7 @@ impl From<TryBlockError> for TryInitError {
     fn from(err: TryBlockError) -> Self {
         match err {
             TryBlockError::AlreadyInit => TryInitError::AlreadyInit,
-            TryBlockError::WouldBlock(_) => TryInitError::WouldBlock,
+            TryBlockError::WouldBlock => TryInitError::WouldBlock,
         }
     }
 }
@@ -584,7 +591,7 @@ impl From<TryBlockError> for WouldBlockError {
     fn from(err: TryBlockError) -> Self {
         match err {
             TryBlockError::AlreadyInit => unreachable!(),
-            TryBlockError::WouldBlock(_) => Self(()),
+            TryBlockError::WouldBlock => Self(()),
         }
     }
 }
@@ -627,6 +634,9 @@ impl<B: Unblock> Drop for PanicGuard<'_, B> {
     #[inline]
     fn drop(&mut self) {
         let swap = if self.poison { SwapState::Poisoned } else { SwapState::Ready };
+        // SAFETY: The panic guard can only be dropped *after* the
+        // initialization closure has either completed or panicked, so it is
+        // safe & sound to unblock.
         unsafe {
             // (guard:2) this acq-rel swap syncs-with the acq-rel CAS (wait:2)
             // and the acquire loads (cell:1), (cell:2), (wait:1) and the

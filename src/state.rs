@@ -54,7 +54,7 @@ impl AtomicOnceState {
         match prev.try_into().expect(POISON_PANIC_MSG) {
             Uninit => Ok(()),
             Ready => Err(TryBlockError::AlreadyInit),
-            WouldBlock(state) => Err(TryBlockError::WouldBlock(state)),
+            WouldBlock(_) => Err(TryBlockError::WouldBlock),
         }
     }
 
@@ -169,7 +169,7 @@ impl From<OnceState> for usize {
 
 pub(crate) enum TryBlockError {
     AlreadyInit,
-    WouldBlock(BlockedState),
+    WouldBlock,
 }
 
 /// An error type indicating a `OnceCell` has been poisoned.

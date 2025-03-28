@@ -191,7 +191,7 @@ impl Unblock for ParkThread {
     /// Unblocks all blocked waiting threads.
     #[inline]
     unsafe fn on_unblock(state: BlockedState) {
-        let mut curr = state.as_ptr() as *const StackWaiter;
+        let mut curr = state.as_ptr();
         while !curr.is_null() {
             let thread = {
                 // SAFETY: no mutable references to a stack waiter can exist
@@ -214,6 +214,9 @@ impl Unblock for ParkThread {
     }
 }
 
+// SAFETY: The `ParkThread::block` ensures, that the calling thread will be
+// parked and can only be unparked once the initialization closure has
+// completed.
 unsafe impl Block for ParkThread {
     /// Blocks (parks) the current thread until it is woken up by the thread
     /// with permission to initialize the `OnceCell`.
@@ -232,7 +235,7 @@ unsafe impl Block for ParkThread {
         let waiter = StackWaiter {
             ready: AtomicBool::new(false),
             thread: Cell::new(Some(thread::current())),
-            next: Cell::new(blocked.as_ptr() as *const StackWaiter),
+            next: Cell::new(blocked.as_ptr()),
         };
 
         let mut curr = blocked;
@@ -249,7 +252,7 @@ unsafe impl Block for ParkThread {
                     // the waiter hasn't been shared yet, so it's still safe to
                     // mutate the next pointer
                     curr = queue;
-                    waiter.next.set(queue.as_ptr() as *const StackWaiter);
+                    waiter.next.set(queue.as_ptr());
                     back_off.spin();
                 }
                 // acquire-release is required here to enforce acquire ordering in the failure case,
