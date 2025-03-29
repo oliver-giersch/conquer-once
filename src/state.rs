@@ -23,13 +23,11 @@ pub struct AtomicOnceState(AtomicUsize);
 
 impl AtomicOnceState {
     /// Creates a new `UNINIT` state.
-    #[inline]
     pub(crate) const fn new() -> Self {
         Self(AtomicUsize::new(UNINIT))
     }
 
     /// Creates a new `READY` state.
-    #[inline]
     pub(crate) const fn ready() -> Self {
         Self(AtomicUsize::new(READY))
     }
@@ -37,14 +35,12 @@ impl AtomicOnceState {
     /// Loads the current state using `ordering`.
     ///
     /// A Poisoning of the state is returned as a [`PoisonError`].
-    #[inline]
     pub(crate) fn load(&self, order: Ordering) -> Result<OnceState, PoisonError> {
         self.0.load(order).try_into()
     }
 
     /// Attempts to set the state to blocked and fails if the state is either
     /// already initialized or blocked.
-    #[inline]
     pub(crate) fn try_block(&self, order: Ordering) -> Result<(), TryBlockError> {
         let prev = match self.0.compare_exchange(UNINIT, WOULD_BLOCK, order, Ordering::Relaxed) {
             Ok(prev) => prev,
@@ -64,7 +60,6 @@ impl AtomicOnceState {
     ///
     /// Must not be called if unblocking might cause data races due to
     /// un-synchronized reads and/or writes.
-    #[inline]
     pub(crate) unsafe fn unblock(&self, state: SwapState, order: Ordering) -> BlockedState {
         BlockedState(self.0.swap(state as usize, order))
     }
@@ -81,7 +76,6 @@ impl AtomicOnceState {
     /// # Safety
     ///
     /// The caller has to ensure that `new` is a valid pointer to a `StackWaiter`.
-    #[inline]
     pub(crate) unsafe fn try_enqueue_waiter(
         &self,
         current: BlockedState,
@@ -111,7 +105,6 @@ impl AtomicOnceState {
 pub struct BlockedState(usize);
 
 impl From<BlockedState> for usize {
-    #[inline]
     fn from(state: BlockedState) -> Self {
         state.0
     }
@@ -126,7 +119,6 @@ impl BlockedState {
 
 #[cfg(feature = "std")]
 impl From<*const StackWaiter> for BlockedState {
-    #[inline]
     fn from(waiter: *const StackWaiter) -> Self {
         Self(waiter as usize)
     }
@@ -145,7 +137,6 @@ pub(crate) enum OnceState {
 impl TryFrom<usize> for OnceState {
     type Error = PoisonError;
 
-    #[inline]
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         match value {
             POISONED => Err(PoisonError),
@@ -157,7 +148,6 @@ impl TryFrom<usize> for OnceState {
 }
 
 impl From<OnceState> for usize {
-    #[inline]
     fn from(state: OnceState) -> Self {
         match state {
             OnceState::Ready => READY,

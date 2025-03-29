@@ -312,7 +312,7 @@ impl<T, B: Unblock> OnceCell<T, B> {
     #[inline(never)]
     #[cold]
     fn try_init_inner(&self, func: &mut dyn FnMut() -> T) -> Result<&T, TryBlockError> {
-        // sets the state to blocked (i.e. guarantees mutual exclusion) or
+        // Sets the state to blocked (i.e. guarantees mutual exclusion) or
         // returns with an error.
         let guard = PanicGuard::<B>::try_block(&self.state)?;
         // SAFETY: `try_block` ensures mutual exclusion, so no aliasing of the
@@ -324,7 +324,7 @@ impl<T, B: Unblock> OnceCell<T, B> {
         }
         guard.disarm();
 
-        // SAFETY: the cell was just initialized so no check is required here
+        // SAFETY: The cell was just initialized so no check is required here.
         Ok(unsafe { self.get_unchecked() })
     }
 
@@ -405,7 +405,7 @@ impl<T, B: Block> OnceCell<T, B> {
                 B::block(&self.state);
                 // SAFETY: `block` only returns when the state is set to
                 // `INITIALIZED` and acts as an acquire barrier (initialization
-                // happens-before block returns)
+                // happens-before block returns).
                 Some(unsafe { self.get_unchecked() })
             }
             Err(TryGetError::Uninit) => None,
@@ -459,8 +459,8 @@ impl<T, B: Block> OnceCell<T, B> {
     #[inline]
     pub fn init_once(&self, func: impl FnOnce() -> T) {
         if let Err(TryInitError::WouldBlock) = self.try_init_once(func) {
-            // block the current thread if the cell is currently being
-            // initialized
+            // Block the current thread if the cell is currently being
+            // initialized.
             B::block(&self.state);
         }
     }
@@ -491,7 +491,7 @@ impl<T, B: Block> OnceCell<T, B> {
                 B::block(&self.state);
                 // SAFETY: `block` only returns when the state is set to
                 // `INITIALIZED` and acts as an acquire barrier (initialization
-                // happens-before block returns)
+                // happens-before block returns).
                 unsafe { self.get_unchecked() }
             }
         }
@@ -499,17 +499,15 @@ impl<T, B: Block> OnceCell<T, B> {
 }
 
 impl<T: fmt::Debug, B> fmt::Debug for OnceCell<T, B> {
-    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("OnceCell").field("inner", &self.try_get().ok()).finish()
     }
 }
 
 impl<T, B> Drop for OnceCell<T, B> {
-    #[inline]
     fn drop(&mut self) {
-        // drop must never panic, so poisoning is ignored
-        // SAFETY: take_inner cannot be called again after drop has been called
+        // Drop must never panic, so poisoning is ignored.
+        // SAFETY: take_inner cannot be called again after drop has been called.
         mem::drop(unsafe { self.take_inner(true) })
     }
 }
@@ -530,7 +528,6 @@ pub enum TryInitError {
 }
 
 impl fmt::Display for TryInitError {
-    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TryInitError::AlreadyInit => write!(f, "{}", ALREADY_INIT_MSG),
@@ -540,7 +537,6 @@ impl fmt::Display for TryInitError {
 }
 
 impl From<TryBlockError> for TryInitError {
-    #[inline]
     fn from(err: TryBlockError) -> Self {
         match err {
             TryBlockError::AlreadyInit => TryInitError::AlreadyInit,
@@ -563,7 +559,6 @@ pub enum TryGetError {
 }
 
 impl fmt::Display for TryGetError {
-    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TryGetError::Uninit => write!(f, "{}", UNINIT_MSG),
@@ -580,14 +575,12 @@ impl std::error::Error for TryGetError {}
 pub struct WouldBlockError(());
 
 impl fmt::Display for WouldBlockError {
-    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", WOULD_BLOCK_MSG)
     }
 }
 
 impl From<TryBlockError> for WouldBlockError {
-    #[inline]
     fn from(err: TryBlockError) -> Self {
         match err {
             TryBlockError::AlreadyInit => unreachable!(),
@@ -614,16 +607,14 @@ struct PanicGuard<'a, B: Unblock> {
 
 impl<'a, B: Unblock> PanicGuard<'a, B> {
     /// Attempts to block the [`OnceCell`] and return a guard on success.
-    #[inline]
     fn try_block(state: &'a AtomicOnceState) -> Result<Self, TryBlockError> {
-        // (guard:1) this acquire CAS syncs-with the acq-rel swap (guard:2) and the acq-rel CAS
-        // (wait:2)
+        // (guard:1) this acquire CAS syncs-with the acq-rel swap (guard:2) and
+        // the acq-rel CAS (wait:2)
         state.try_block(Ordering::Acquire)?;
         Ok(Self { state, poison: true, _marker: PhantomData })
     }
 
     /// Consumes the guard and assures that no panic has occurred.
-    #[inline]
     fn disarm(mut self) {
         self.poison = false;
         mem::drop(self);
@@ -631,7 +622,6 @@ impl<'a, B: Unblock> PanicGuard<'a, B> {
 }
 
 impl<B: Unblock> Drop for PanicGuard<'_, B> {
-    #[inline]
     fn drop(&mut self) {
         let swap = if self.poison { SwapState::Poisoned } else { SwapState::Ready };
         // SAFETY: The panic guard can only be dropped *after* the

@@ -165,14 +165,12 @@ mod internal {
 }
 
 impl ParkThread {
-    #[inline]
     pub(crate) fn try_block_spinning(
         state: &AtomicOnceState,
         back_off: &BackOff,
     ) -> Result<(), BlockedState> {
         loop {
-            // (wait:1) this acquire load syncs-with the release swaps (guard:2)
-            // and the acq-rel CAS (wait:2)
+            // (wait:1) this acquire load syncs-with the release swaps (guard:2) and the acquire-release CAS (wait:2)
             match state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
                 Ready => return Ok(()),
                 WouldBlock(blocked) if back_off.advise_yield() => {
@@ -189,20 +187,20 @@ impl ParkThread {
 
 impl Unblock for ParkThread {
     /// Unblocks all blocked waiting threads.
-    #[inline]
     unsafe fn on_unblock(state: BlockedState) {
         let mut curr = state.as_ptr();
         while !curr.is_null() {
             let thread = {
-                // SAFETY: no mutable references to a stack waiter can exist
+                // SAFETY: No mutable references to a stack waiter can exist
                 // and the waiter struct is ensured to live while its thread is
-                // parked, so the pointer can be safely dereferenced
+                // parked, so the pointer can be safely dereferenced.
                 #[allow(unused_unsafe)]
                 let waiter = unsafe { &*curr };
                 curr = waiter.next.get();
-                // there can be now data race when mutating the thread-cell as only the unblocking
-                // thread will access it, the stack waiter can dropped as soon as the following
-                // store becomes visible, so the thread MUST be taken out first
+                // There can be now data race when mutating the thread-cell as
+                // only the unblocking thread will access it, the stack waiter
+                // can dropped as soon as the following store becomes visible,
+                // so the thread MUST be taken out first.
                 let thread = waiter.thread.take().unwrap();
                 // (ready:2) this release store syncs-with the acquire load (ready:1)
                 waiter.ready.store(true, Ordering::Release);
@@ -220,17 +218,16 @@ impl Unblock for ParkThread {
 unsafe impl Block for ParkThread {
     /// Blocks (parks) the current thread until it is woken up by the thread
     /// with permission to initialize the `OnceCell`.
-    #[inline]
     fn block(state: &AtomicOnceState) {
-        // spin a little before parking the thread in case the state is
-        // quickly unlocked again
+        // Spin a bounded number of times little before parking the thread in
+        // case the state is quickly unlocked again.
         let back_off = BackOff::new();
         let blocked = match Self::try_block_spinning(state, &back_off) {
             Ok(_) => return,
             Err(blocked) => blocked,
         };
 
-        // create a linked list node on the current thread's stack, which is
+        // Create a linked list node on the current thread's stack, which is
         // guaranteed to stay alive while the thread is parked.
         let waiter = StackWaiter {
             ready: AtomicBool::new(false),
@@ -243,36 +240,39 @@ unsafe impl Block for ParkThread {
 
         // SAFETY: `head` is a valid pointer to a `StackWaiter` that will live
         // for the duration of this function, which in turn will only return
-        // when no other thread can still observe any pointer to it
-        // (wait:2) this acq-rel CAS syncs-with itself and the acq load (wait:1)
+        // when no other thread can still observe any pointer to it.
+        // (wait:2) this acquire-release CAS syncs-with itself and the acquire load (wait:1)
         while let Err(err) = unsafe { state.try_enqueue_waiter(curr, head, Ordering::AcqRel) } {
             match err {
-                // another parked thread succeeded in placing itself at the queue's front
+                // Another parked thread succeeded in placing itself at
+                // the queue's front.
                 WouldBlock(queue) => {
-                    // the waiter hasn't been shared yet, so it's still safe to
-                    // mutate the next pointer
+                    // The waiter hasn't been shared yet, so it's still safe to
+                    // mutate the next pointer.
                     curr = queue;
                     waiter.next.set(queue.as_ptr());
                     back_off.spin();
                 }
-                // acquire-release is required here to enforce acquire ordering in the failure case,
-                // which guarantees that any (non-atomic) stores to the cell's inner state preceding
+                // Acquire-release is required here to enforce acquire ordering
+                // in the failure case, which guarantees that any (non-atomic)
+                // stores to the cell's inner state preceding.
                 // (guard:2) have become visible, if the function returns;
-                // (alternatively an explicit acquire fence could be placed into this path)
+                // (alternatively an explicit acquire fence could be placed
+                // into this path).
                 Ready => return,
                 Uninit => unreachable!("cell state can not become `UNINIT again`"),
             }
         }
 
-        // park the thread until it is woken up by the thread that first set the state to blocked.
-        // the loop guards against spurious wake ups
+        // Park the thread until it is woken up by the thread that first set
+        // the state to blocked. The loop guards against spurious wake ups.
         // (ready:1) this acquire load syncs-with the release store (ready:2)
         while !waiter.ready.load(Ordering::Acquire) {
             thread::park();
         }
 
-        // SAFETY: propagates poisoning as required by the trait
-        // (wait:3) this acquire load syncs-with the acq-rel swap (guard:2)
+        // SAFETY: Propagates poisoning as required by the trait.
+        // (wait:3) this acquire load syncs-with the acquire-release swap (guard:2)
         assert_eq!(state.load(Ordering::Acquire).expect(POISON_PANIC_MSG), Ready);
     }
 }

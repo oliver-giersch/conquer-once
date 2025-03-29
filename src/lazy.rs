@@ -9,9 +9,8 @@ use crate::cell::{Block, OnceCell, Unblock};
 pub struct Lazy<T, B, F = fn() -> T> {
     /// The cell storing the lazily initialized value.
     cell: OnceCell<T, B>,
-    /// The initialization function or closure;
-    /// this is wrapped in a [`ManuallyDrop`] so that [`FnOnce`] closures can
-    /// be used as well.
+    /// The initialization function or closure; this is wrapped in a
+    /// [`ManuallyDrop`] so that [`FnOnce`] closures can be used as well.
     init: ManuallyDrop<F>,
 }
 
@@ -62,13 +61,13 @@ where
     ///
     /// # Panics
     ///
-    /// This method panics if the `init` procedure specified during construction
-    /// panics or if the [`Lazy`] is poisoned.
+    /// This method panics if the `init` procedure specified during
+    /// construction panics or if the [`Lazy`] is poisoned.
     #[inline]
     pub fn get_or_init(lazy: &Self) -> &T {
         lazy.cell.get_or_init(|| {
-            // SAFETY: this (outer) closure is only called once and `init` is
-            // never dropped, so it will never be touched again
+            // SAFETY: This (outer) closure is only called once and `init` is
+            // never dropped, so it will never be touched again.
             let func = unsafe { ptr::read(&*lazy.init) };
             func()
         })

@@ -59,9 +59,8 @@ impl Unblock for Spin {
 unsafe impl Block for Spin {
     /// Spins until the [`OnceCell`] state is set to `READY`, or panics if it
     /// becomes poisoned.
-    #[inline]
     fn block(state: &AtomicOnceState) {
-        // (spin:1) this acquire load syncs-with the acq-rel swap (guard:2)
+        // (spin:1) this acquire load syncs-with the acquire-release swap (guard:2)
         while let WouldBlock(_) = state.load(Ordering::Acquire).expect(POISON_PANIC_MSG) {
             hint::spin_loop();
         }
