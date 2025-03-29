@@ -608,8 +608,7 @@ struct PanicGuard<'a, B: Unblock> {
 impl<'a, B: Unblock> PanicGuard<'a, B> {
     /// Attempts to block the [`OnceCell`] and return a guard on success.
     fn try_block(state: &'a AtomicOnceState) -> Result<Self, TryBlockError> {
-        // (guard:1) this acquire CAS syncs-with the acq-rel swap (guard:2) and
-        // the acq-rel CAS (wait:2)
+        // (guard:1) this acquire CAS syncs-with the acquire-release swap (guard:2) and the acquire-release CAS (wait:2)
         state.try_block(Ordering::Acquire)?;
         Ok(Self { state, poison: true, _marker: PhantomData })
     }
@@ -628,8 +627,9 @@ impl<B: Unblock> Drop for PanicGuard<'_, B> {
         // initialization closure has either completed or panicked, so it is
         // safe & sound to unblock.
         unsafe {
-            // (guard:2) this acq-rel swap syncs-with the acq-rel CAS (wait:2)
-            // and the acquire loads (cell:1), (cell:2), (wait:1) and the
+            // (guard:2) this acquire-release swap syncs-with the
+            // acquire-release CAS (wait:2), the acquire fence (wait:4), the
+            // acquire loads (cell:1), (cell:2), (wait:1) and the
             // acquire CAS (guard:1)
             let prev = self.state.unblock(swap, Ordering::AcqRel);
             B::on_unblock(prev);

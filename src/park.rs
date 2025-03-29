@@ -1,6 +1,6 @@
 use std::{
     cell::Cell,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{self, AtomicBool, Ordering},
     thread::{self, Thread},
 };
 
@@ -242,7 +242,15 @@ unsafe impl Block for ParkThread {
         // for the duration of this function, which in turn will only return
         // when no other thread can still observe any pointer to it.
         // (wait:2) this acquire-release CAS syncs-with itself and the acquire load (wait:1)
-        while let Err(err) = unsafe { state.try_enqueue_waiter(curr, head, Ordering::AcqRel) } {
+        //
+        // Acquire-release is required here to enforce acquire ordering in the
+        // failure case, which guarantees that any (non-atomic) stores to the
+        // cell's inner state preceding (guard:2) have become visible, if the
+        // function returns; (alternatively an explicit acquire fence could be
+        // placed into this path).
+        while let Err(err) =
+            unsafe { state.try_enqueue_waiter(curr, head, Ordering::AcqRel, Ordering::Relaxed) }
+        {
             match err {
                 // Another parked thread succeeded in placing itself at
                 // the queue's front.
@@ -253,13 +261,15 @@ unsafe impl Block for ParkThread {
                     waiter.next.set(queue.as_ptr());
                     back_off.spin();
                 }
-                // Acquire-release is required here to enforce acquire ordering
-                // in the failure case, which guarantees that any (non-atomic)
-                // stores to the cell's inner state preceding.
-                // (guard:2) have become visible, if the function returns;
-                // (alternatively an explicit acquire fence could be placed
-                // into this path).
-                Ready => return,
+                Ready => {
+                    // The acquire fence is required here in order to ensure all
+                    // memory writes that were part of the function that
+                    // initialized the cell become visible to any blocked
+                    // thread.
+                    // (wait:4) this acquire fence syncs-with the acquire-release swap (guard:2)
+                    atomic::fence(Ordering::Acquire);
+                    return;
+                }
                 Uninit => unreachable!("cell state can not become `UNINIT again`"),
             }
         }

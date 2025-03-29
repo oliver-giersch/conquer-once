@@ -1,6 +1,6 @@
 use core::{
     convert::{TryFrom, TryInto},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
 #[cfg(feature = "std")]
@@ -9,27 +9,30 @@ use crate::POISON_PANIC_MSG;
 
 use self::OnceState::{Ready, Uninit, WouldBlock};
 
-const WOULD_BLOCK: usize = 0;
-const UNINIT: usize = 1;
-const READY: usize = 2;
-const POISONED: usize = 3;
+const WOULD_BLOCK: *mut () = 0x0 as *mut ();
+const UNINIT: *mut () = 0x1 as *mut ();
+const READY: *mut () = 0x2 as *mut ();
+const POISONED: *mut () = 0x3 as *mut ();
 
 /// The concurrently and atomically mutable internal state of a [`OnceCell`].
 ///
 /// A `WOULD_BLOCK` value is also interpreted as a `null` pointer to an empty
 /// [`WaiterQueue`] indicating that there is only a single blocked thread.
+///
+/// Note: This is not actually exported but needs to be `pub` because it appears
+/// in the API of the (sealed public) `Unblock` trait.
 #[derive(Debug)]
-pub struct AtomicOnceState(AtomicUsize);
+pub struct AtomicOnceState(AtomicPtr<()>);
 
 impl AtomicOnceState {
     /// Creates a new `UNINIT` state.
     pub(crate) const fn new() -> Self {
-        Self(AtomicUsize::new(UNINIT))
+        Self(AtomicPtr::new(UNINIT))
     }
 
     /// Creates a new `READY` state.
     pub(crate) const fn ready() -> Self {
-        Self(AtomicUsize::new(READY))
+        Self(AtomicPtr::new(READY))
     }
 
     /// Loads the current state using `ordering`.
@@ -61,7 +64,12 @@ impl AtomicOnceState {
     /// Must not be called if unblocking might cause data races due to
     /// un-synchronized reads and/or writes.
     pub(crate) unsafe fn unblock(&self, state: SwapState, order: Ordering) -> BlockedState {
-        BlockedState(self.0.swap(state as usize, order))
+        let state = match state {
+            SwapState::Ready => READY,
+            SwapState::Poisoned => POISONED,
+        };
+
+        BlockedState(self.0.swap(state, order))
     }
 }
 
@@ -75,18 +83,19 @@ impl AtomicOnceState {
     ///
     /// # Safety
     ///
-    /// The caller has to ensure that `new` is a valid pointer to a `StackWaiter`.
+    /// The caller has to ensure that `new` is a valid pointer to a
+    /// `StackWaiter`.
     pub(crate) unsafe fn try_enqueue_waiter(
         &self,
         current: BlockedState,
         new: BlockedState,
         success: Ordering,
+        failure: Ordering,
     ) -> Result<(), OnceState> {
-        let prev =
-            match self.0.compare_exchange(current.into(), new.into(), success, Ordering::Relaxed) {
-                Ok(prev) => prev,
-                Err(prev) => prev,
-            };
+        let prev = match self.0.compare_exchange(current.into(), new.into(), success, failure) {
+            Ok(prev) => prev,
+            Err(prev) => prev,
+        };
 
         match prev {
             prev if prev == current.into() => Ok(()),
@@ -102,9 +111,9 @@ impl AtomicOnceState {
 /// Note: This is not actually exported but needs to be `pub` because it appears
 /// in the API of the (sealed public) `Unblock` trait.
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct BlockedState(usize);
+pub struct BlockedState(*mut ());
 
-impl From<BlockedState> for usize {
+impl From<BlockedState> for *mut () {
     fn from(state: BlockedState) -> Self {
         state.0
     }
@@ -113,14 +122,14 @@ impl From<BlockedState> for usize {
 #[cfg(feature = "std")]
 impl BlockedState {
     pub(crate) fn as_ptr(self) -> *const StackWaiter {
-        self.0 as *const _
+        self.0.cast()
     }
 }
 
 #[cfg(feature = "std")]
 impl From<*const StackWaiter> for BlockedState {
     fn from(waiter: *const StackWaiter) -> Self {
-        Self(waiter as usize)
+        Self(waiter as *const () as *mut ())
     }
 }
 
@@ -134,10 +143,10 @@ pub(crate) enum OnceState {
     WouldBlock(BlockedState),
 }
 
-impl TryFrom<usize> for OnceState {
+impl TryFrom<*mut ()> for OnceState {
     type Error = PoisonError;
 
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
+    fn try_from(value: *mut ()) -> Result<Self, Self::Error> {
         match value {
             POISONED => Err(PoisonError),
             UNINIT => Ok(Uninit),
@@ -147,7 +156,7 @@ impl TryFrom<usize> for OnceState {
     }
 }
 
-impl From<OnceState> for usize {
+impl From<OnceState> for *mut () {
     fn from(state: OnceState) -> Self {
         match state {
             OnceState::Ready => READY,
@@ -168,6 +177,6 @@ pub(crate) struct PoisonError;
 
 #[repr(usize)]
 pub(crate) enum SwapState {
-    Ready = READY,
-    Poisoned = POISONED,
+    Ready,
+    Poisoned,
 }
